@@ -129,7 +129,7 @@ export function summarize(data) {
 
   const upcomingEvents = events.filter((e) => {
     const d = e.date?.toDate ? e.date.toDate() : e.date ? new Date(e.date) : null;
-    return d && d >= now && !e.canceled;
+    return d && d >= now && !e.canceled && !e.deleted;
   });
 
   const fieldRows = fields.map((f) => {
