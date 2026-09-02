@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
-  CalendarDays, Ticket, DollarSign, Clock3, TrendingUp, AlertCircle,
+  CalendarDays, Ticket, DollarSign, Clock3, TrendingUp, AlertCircle, ExternalLink,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
 import { useAdminData, summarize } from "./hooks/useAdminData";
@@ -101,10 +101,33 @@ function Dashboard({ email, onSignOut }) {
 
   return (
     <div className="min-h-screen bg-cream">
-      <header className="bg-navy text-white px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <LayoutDashboard size={20} />
-          <span className="font-display font-bold">Atlas Admin</span>
+      <header className="bg-navy text-white px-6 py-4 flex flex-wrap items-center justify-between gap-y-2">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <LayoutDashboard size={20} />
+            <span className="font-display font-bold">Atlas Admin</span>
+          </div>
+          {/* Jump to the other two apps — opens in a new tab rather than
+              navigating this dashboard's own tab away, same convention as
+              every external redirect elsewhere in Atlas (see atlas-stack.md). */}
+          <nav className="flex items-center gap-3 text-sm opacity-90">
+            <a
+              href="https://playerapp.airsoftatlas.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 hover:opacity-100 hover:underline"
+            >
+              Player App <ExternalLink size={12} />
+            </a>
+            <a
+              href="https://ownerapp.airsoftatlas.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 hover:opacity-100 hover:underline"
+            >
+              Owner App <ExternalLink size={12} />
+            </a>
+          </nav>
         </div>
         <div className="flex items-center gap-4 text-sm">
           <button onClick={reload} className="flex items-center gap-1 opacity-90 hover:opacity-100" title="Refresh">
