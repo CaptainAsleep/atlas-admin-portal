@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
 // Real Stripe monthly price per tier — see TIER_PRICE_IDS in
@@ -49,9 +49,25 @@ export function useAdminData() {
         getDocs(collection(db, "events")),
       ]);
 
-      const fields = fieldsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      let fields = fieldsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const owners = ownersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const events = eventsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      // Private, field-scoped welcome-package shipping addresses — only
+      // fetched for claimed fields (an unclaimed field has no owner to
+      // have filled one in). Only readable here because the admin uid is
+      // explicitly allowed in firestore.rules (fields/{id}/private/{doc}),
+      // unlike the fully public fields/owners/events/bookings reads above.
+      const claimedFields = fields.filter((f) => f.claimed === true);
+      const shippingSnaps = await Promise.all(
+        claimedFields.map((f) => getDoc(doc(db, "fields", f.id, "private", "shipping")).catch(() => null))
+      );
+      const shippingByFieldId = {};
+      claimedFields.forEach((f, i) => {
+        const snap = shippingSnaps[i];
+        if (snap && snap.exists()) shippingByFieldId[f.id] = snap.data();
+      });
+      fields = fields.map((f) => ({ ...f, shippingAddress: shippingByFieldId[f.id] || null }));
 
       const bookingsByEvent = await Promise.all(
         events.map((e) => getDocs(collection(db, "events", e.id, "bookings")))
@@ -153,6 +169,7 @@ export function summarize(data) {
       revenueCents,
       subscriptionStatus: owner?.subscriptionStatus || null,
       payoutsEnabled: owner?.payoutsEnabled === true,
+      shippingAddress: f.shippingAddress || null,
     };
   });
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
-  CalendarDays, Ticket, DollarSign, Clock3, TrendingUp, AlertCircle, ExternalLink,
+  CalendarDays, Ticket, DollarSign, Clock3, TrendingUp, AlertCircle, ExternalLink, Package,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
 import { useAdminData, summarize } from "./hooks/useAdminData";
@@ -266,6 +266,56 @@ function Dashboard({ email, onSignOut }) {
                         <td className="py-2 text-right font-medium">{money(f.revenueCents)}</td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="bg-white rounded-xl border border-cream-line p-5 mt-8">
+              <h2 className="font-display font-bold text-navy mb-1 flex items-center gap-2">
+                <Package size={16} /> Welcome package addresses
+              </h2>
+              <p className="text-xs text-ink-soft mb-3">
+                Where to actually ship stickers, a tablet stand, etc. Private, owner-provided — separate from a
+                field's public listing address, since some fields have no one on-site to receive mail. Claimed
+                fields only; a blank row just means that owner hasn't filled theirs in yet.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[640px]">
+                  <thead>
+                    <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
+                      <th className="pb-2 font-medium">Field</th>
+                      <th className="pb-2 font-medium">Owner</th>
+                      <th className="pb-2 font-medium">Recipient</th>
+                      <th className="pb-2 font-medium">Address</th>
+                      <th className="pb-2 font-medium">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.fieldRows.filter((f) => f.claimed).map((f) => {
+                      const a = f.shippingAddress;
+                      const hasAddress = a && (a.line1 || a.city);
+                      return (
+                        <tr key={f.id} className="border-t border-cream-dim align-top">
+                          <td className="py-2 text-navy font-medium">{f.name}</td>
+                          <td className="py-2 text-ink">{f.ownerName}</td>
+                          <td className="py-2 text-ink">{a?.recipientName || (hasAddress ? "—" : "")}</td>
+                          <td className="py-2 text-ink">
+                            {hasAddress ? (
+                              <>
+                                {a.line1}
+                                {a.line2 ? `, ${a.line2}` : ""}
+                                <br />
+                                {[a.city, a.state, a.zip].filter(Boolean).join(", ")}
+                              </>
+                            ) : (
+                              <span className="text-ink-soft italic">not provided yet</span>
+                            )}
+                          </td>
+                          <td className="py-2 text-ink-soft">{a?.notes || ""}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
