@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
-  CalendarDays, Ticket, DollarSign, Clock3, TrendingUp, AlertCircle, ExternalLink, Package,
+  CalendarDays, Ticket, DollarSign, Clock3, TrendingUp, AlertCircle, ExternalLink, Package, Search,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
 import { useAdminData, summarize } from "./hooks/useAdminData";
@@ -98,6 +98,19 @@ function StatCard({ icon: Icon, label, value, sub, tone = "navy" }) {
 function Dashboard({ email, onSignOut }) {
   const { data, loading, error, reload } = useAdminData();
   const s = summarize(data);
+  // Both lists are capped-height + searchable rather than growing the page
+  // forever — Fields especially: fine today at one field, unusable as a
+  // full-page scroll once Atlas is national. The sticky jump nav below
+  // covers the "get me to Addresses without scrolling past all of Fields"
+  // case regardless of how long either list gets.
+  const [fieldSearch, setFieldSearch] = useState("");
+  const [addressSearch, setAddressSearch] = useState("");
+  const fieldRows = (s?.fieldRows || []).filter((f) =>
+    `${f.name} ${f.ownerName}`.toLowerCase().includes(fieldSearch.toLowerCase())
+  );
+  const addressRows = (s?.fieldRows || [])
+    .filter((f) => f.claimed)
+    .filter((f) => `${f.name} ${f.ownerName}`.toLowerCase().includes(addressSearch.toLowerCase()));
 
   return (
     <div className="min-h-screen bg-cream">
@@ -139,6 +152,15 @@ function Dashboard({ email, onSignOut }) {
           </button>
         </div>
       </header>
+
+      {/* Sticky so you can jump straight to a section from anywhere on the
+          page — the real fix for "scroll forever to reach Addresses" as
+          Fields grows, independent of section order or either list's
+          length. */}
+      <nav className="sticky top-0 z-20 bg-cream/95 backdrop-blur border-b border-cream-line px-6 py-2 flex items-center gap-4 text-sm">
+        <a href="#fields" className="text-ink hover:text-accent">Fields</a>
+        <a href="#addresses" className="text-ink hover:text-accent">Welcome package addresses</a>
+      </nav>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
         {error && (
@@ -233,24 +255,40 @@ function Dashboard({ email, onSignOut }) {
               </div>
             </section>
 
-            <section className="bg-white rounded-xl border border-cream-line p-5">
-              <h2 className="font-display font-bold text-navy mb-3">Fields</h2>
-              <div className="overflow-x-auto">
+            <section id="fields" className="bg-white rounded-xl border border-cream-line p-5 scroll-mt-16">
+              <div className="flex items-center justify-between mb-3 gap-4 flex-wrap">
+                <h2 className="font-display font-bold text-navy">Fields ({fieldRows.length}{fieldSearch ? ` of ${s.fieldRows.length}` : ""})</h2>
+                <div className="relative">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-soft" />
+                  <input
+                    type="text"
+                    value={fieldSearch}
+                    onChange={(e) => setFieldSearch(e.target.value)}
+                    placeholder="Search field or owner…"
+                    className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-cream-line bg-cream/50 outline-none focus:border-accent w-56"
+                  />
+                </div>
+              </div>
+              {/* Capped height + its own scroll, not the page's — this is
+                  the part that actually keeps the table usable once it's
+                  hundreds of rows long, not just findable via the search
+                  box above. */}
+              <div className="overflow-auto max-h-[28rem] border border-cream-dim rounded-lg">
                 <table className="w-full text-sm min-w-[640px]">
-                  <thead>
+                  <thead className="sticky top-0 bg-white shadow-sm">
                     <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
-                      <th className="pb-2 font-medium">Field</th>
-                      <th className="pb-2 font-medium">Owner</th>
-                      <th className="pb-2 font-medium">Status</th>
-                      <th className="pb-2 font-medium text-right">Events</th>
-                      <th className="pb-2 font-medium text-right">Paid bookings</th>
-                      <th className="pb-2 font-medium text-right">Revenue</th>
+                      <th className="pb-2 pt-2 pl-2 font-medium">Field</th>
+                      <th className="pb-2 pt-2 font-medium">Owner</th>
+                      <th className="pb-2 pt-2 font-medium">Status</th>
+                      <th className="pb-2 pt-2 font-medium text-right">Events</th>
+                      <th className="pb-2 pt-2 font-medium text-right">Paid bookings</th>
+                      <th className="pb-2 pt-2 pr-2 font-medium text-right">Revenue</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {s.fieldRows.map((f) => (
+                    {fieldRows.map((f) => (
                       <tr key={f.id} className="border-t border-cream-dim">
-                        <td className="py-2 text-navy font-medium">{f.name}</td>
+                        <td className="py-2 pl-2 text-navy font-medium">{f.name}</td>
                         <td className="py-2 text-ink">{f.ownerName}</td>
                         <td className="py-2 text-ink">
                           {f.claimPending ? (
@@ -263,41 +301,56 @@ function Dashboard({ email, onSignOut }) {
                         </td>
                         <td className="py-2 text-right">{f.eventsCount}</td>
                         <td className="py-2 text-right">{f.paidBookingsCount}</td>
-                        <td className="py-2 text-right font-medium">{money(f.revenueCents)}</td>
+                        <td className="py-2 pr-2 text-right font-medium">{money(f.revenueCents)}</td>
                       </tr>
                     ))}
+                    {fieldRows.length === 0 && (
+                      <tr><td colSpan={6} className="py-4 text-center text-ink-soft">No fields match "{fieldSearch}".</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>
             </section>
 
-            <section className="bg-white rounded-xl border border-cream-line p-5 mt-8">
-              <h2 className="font-display font-bold text-navy mb-1 flex items-center gap-2">
-                <Package size={16} /> Welcome package addresses
-              </h2>
+            <section id="addresses" className="bg-white rounded-xl border border-cream-line p-5 mt-8 scroll-mt-16">
+              <div className="flex items-center justify-between mb-1 gap-4 flex-wrap">
+                <h2 className="font-display font-bold text-navy flex items-center gap-2">
+                  <Package size={16} /> Welcome package addresses ({addressRows.length}{addressSearch ? ` of ${s.fieldRows.filter((f) => f.claimed).length}` : ""})
+                </h2>
+                <div className="relative">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-soft" />
+                  <input
+                    type="text"
+                    value={addressSearch}
+                    onChange={(e) => setAddressSearch(e.target.value)}
+                    placeholder="Search field or owner…"
+                    className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-cream-line bg-cream/50 outline-none focus:border-accent w-56"
+                  />
+                </div>
+              </div>
               <p className="text-xs text-ink-soft mb-3">
                 Where to actually ship stickers, a tablet stand, etc. Private, owner-provided — separate from a
                 field's public listing address, since some fields have no one on-site to receive mail. Claimed
                 fields only; a blank row just means that owner hasn't filled theirs in yet.
               </p>
-              <div className="overflow-x-auto">
+              <div className="overflow-auto max-h-[28rem] border border-cream-dim rounded-lg">
                 <table className="w-full text-sm min-w-[640px]">
-                  <thead>
+                  <thead className="sticky top-0 bg-white shadow-sm">
                     <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
-                      <th className="pb-2 font-medium">Field</th>
-                      <th className="pb-2 font-medium">Owner</th>
-                      <th className="pb-2 font-medium">Recipient</th>
-                      <th className="pb-2 font-medium">Address</th>
-                      <th className="pb-2 font-medium">Notes</th>
+                      <th className="pb-2 pt-2 pl-2 font-medium">Field</th>
+                      <th className="pb-2 pt-2 font-medium">Owner</th>
+                      <th className="pb-2 pt-2 font-medium">Recipient</th>
+                      <th className="pb-2 pt-2 font-medium">Address</th>
+                      <th className="pb-2 pt-2 pr-2 font-medium">Notes</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {s.fieldRows.filter((f) => f.claimed).map((f) => {
+                    {addressRows.map((f) => {
                       const a = f.shippingAddress;
                       const hasAddress = a && (a.line1 || a.city);
                       return (
                         <tr key={f.id} className="border-t border-cream-dim align-top">
-                          <td className="py-2 text-navy font-medium">{f.name}</td>
+                          <td className="py-2 pl-2 text-navy font-medium">{f.name}</td>
                           <td className="py-2 text-ink">{f.ownerName}</td>
                           <td className="py-2 text-ink">{a?.recipientName || (hasAddress ? "—" : "")}</td>
                           <td className="py-2 text-ink">
@@ -312,10 +365,13 @@ function Dashboard({ email, onSignOut }) {
                               <span className="text-ink-soft italic">not provided yet</span>
                             )}
                           </td>
-                          <td className="py-2 text-ink-soft">{a?.notes || ""}</td>
+                          <td className="py-2 pr-2 text-ink-soft">{a?.notes || ""}</td>
                         </tr>
                       );
                     })}
+                    {addressRows.length === 0 && (
+                      <tr><td colSpan={5} className="py-4 text-center text-ink-soft">No matches.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>
