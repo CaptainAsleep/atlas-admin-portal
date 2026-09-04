@@ -146,14 +146,29 @@ export function summarize(data) {
     return bookedAt && bookedAt >= monthStart;
   });
 
+  // payoutRevenueCents is the complement of bookingFeeRevenueCents — the
+  // share of each paid booking that goes to the field owner rather than
+  // Atlas (amountPaidCents minus the fee), matching how the Stripe Connect
+  // destination charge actually splits the money in createBookingCheckout
+  // (application_fee_amount to Atlas, the rest to transfer_data.destination).
+  // Both totals are computed in the same pass since they need the same fee
+  // figure per booking (exact when bookingFeeCents was recorded, estimated
+  // via estimateBookingFeeCents otherwise).
   let bookingFeeRevenueCents = 0;
+  let payoutRevenueCents = 0;
   let estimatedFeeCount = 0;
   for (const b of paidBookings) {
+    let feeCents = null;
     if (typeof b.bookingFeeCents === "number") {
-      bookingFeeRevenueCents += b.bookingFeeCents;
+      feeCents = b.bookingFeeCents;
     } else if (typeof b.amountPaidCents === "number") {
-      bookingFeeRevenueCents += estimateBookingFeeCents(b.amountPaidCents);
+      feeCents = estimateBookingFeeCents(b.amountPaidCents);
       estimatedFeeCount += 1;
+    }
+    if (feeCents == null) continue; // neither field present — can't count this booking either way
+    bookingFeeRevenueCents += feeCents;
+    if (typeof b.amountPaidCents === "number") {
+      payoutRevenueCents += b.amountPaidCents - feeCents;
     }
   }
 
@@ -203,6 +218,14 @@ export function summarize(data) {
     paidBookingsTotal: paidBookings.length,
     paidBookingsThisMonth: paidBookingsThisMonth.length,
     bookingFeeRevenueCents,
+    payoutRevenueCents,
+    // "Total Atlas revenue" per Michael: all-time booking fees plus this
+    // month's active subscription revenue. Not a true lifetime total —
+    // Firestore has no historical ledger of past subscription payments,
+    // only each owner's current tier/status — so this is booking fees
+    // (exact, cumulative) blended with a current-month recurring snapshot,
+    // not two numbers on the same time basis.
+    totalAtlasRevenueCents: bookingFeeRevenueCents + Math.round(activeMRR * 100),
     estimatedFeeCount,
     fieldRows: fieldRows.sort((a, b) => b.revenueCents - a.revenueCents),
   };

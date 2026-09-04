@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
-  CalendarDays, Ticket, DollarSign, Clock3, TrendingUp, AlertCircle, ExternalLink, Package, Search,
+  CalendarDays, Ticket, DollarSign, Clock3, TrendingUp, AlertCircle, ExternalLink, Package, Search, Wallet,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
 import { useAdminData, summarize, TIER_LABELS } from "./hooks/useAdminData";
@@ -82,10 +82,10 @@ function NotAuthorized({ email, onSignOut }) {
   );
 }
 
-function StatCard({ icon: Icon, label, value, sub, tone = "navy" }) {
+function StatCard({ icon: Icon, label, value, sub, tone = "navy", className = "" }) {
   const toneClasses = { navy: "text-navy", positive: "text-positive", accent: "text-accent" };
   return (
-    <div className="bg-white rounded-xl border border-cream-line p-4">
+    <div className={`bg-white rounded-xl border border-cream-line p-4 ${className}`}>
       <div className="flex items-center gap-2 text-ink-soft text-xs font-medium uppercase tracking-wide mb-2">
         <Icon size={14} /> {label}
       </div>
@@ -174,6 +174,25 @@ function Dashboard({ email, onSignOut }) {
         {s && (
           <>
             <section className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              {/* Row 1: the two headline revenue numbers, each spanning
+                  half the grid so they read as a pair above the detail
+                  cards rather than competing with them for attention. */}
+              <StatCard
+                icon={DollarSign}
+                label="Total Atlas Revenue"
+                value={money(s.totalAtlasRevenueCents)}
+                sub={`${money(s.bookingFeeRevenueCents)} booking fees + ${money(s.activeMRR * 100)} active MRR`}
+                tone="positive"
+                className="col-span-2"
+              />
+              <StatCard
+                icon={Wallet}
+                label="Total Payout Revenue"
+                value={money(s.payoutRevenueCents)}
+                sub={`sent to field owners — ${s.estimatedFeeCount ? `${s.estimatedFeeCount} bookings estimated (pre-tracking)` : "all-time, exact"}`}
+                tone="accent"
+                className="col-span-2"
+              />
               <StatCard
                 icon={MapPin}
                 label="Fields claimed"
