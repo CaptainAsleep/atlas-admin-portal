@@ -4,7 +4,7 @@ import {
   CalendarDays, Ticket, DollarSign, Clock3, TrendingUp, AlertCircle, ExternalLink, Package, Search,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
-import { useAdminData, summarize } from "./hooks/useAdminData";
+import { useAdminData, summarize, TIER_LABELS } from "./hooks/useAdminData";
 
 function money(cents) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -244,9 +244,9 @@ function Dashboard({ email, onSignOut }) {
                 <h2 className="font-display font-bold text-navy mb-3">Owners by tier</h2>
                 <table className="w-full text-sm">
                   <tbody>
-                    {["starter", "pro", "enterprise"].map((tier) => (
+                    {Object.entries(TIER_LABELS).map(([tier, label]) => (
                       <tr key={tier} className="border-t border-cream-dim">
-                        <td className="py-2 capitalize text-ink">{tier}</td>
+                        <td className="py-2 text-ink">{label}</td>
                         <td className="py-2 text-right font-medium text-navy">{s.ownersByTier[tier] || 0}</td>
                       </tr>
                     ))}

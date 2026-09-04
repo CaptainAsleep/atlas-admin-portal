@@ -8,6 +8,20 @@ import { db } from "../lib/firebase";
 // changes there, update it here too.
 export const TIER_PRICES = { starter: 79, pro: 149, enterprise: 299 };
 
+// Display names shown in the admin UI — kept separate from the object
+// keys above and in TIER_PRICES, which must keep matching the literal
+// owners.subscriptionTier values actually stored in Firestore (still
+// "starter"/"pro"/"enterprise", tied to TIER_PRICE_IDS in
+// atlas-players-app/functions/index.js). Per Michael's Sep 2026 pricing
+// decision (see Atlas_Pricing_Reality_Check.xlsx), the plan formerly sold
+// as "Starter" is now "Basic," and the old unlimited-fields "Enterprise"
+// plan is now "Unlimited" (up to 3 fields, flat $350/mo) — a new, narrower
+// "Enterprise" is reserved for a future 4+-field custom-pricing tier that
+// doesn't exist as stored data yet, so it has no key of its own here.
+// Rename a tier on screen by editing this map, not the object keys above —
+// those only change once the underlying Firestore/Stripe tier keys do.
+export const TIER_LABELS = { starter: "Basic", pro: "Pro", enterprise: "Unlimited" };
+
 // Inverts bookingFeeCents = min(round(entryPriceCents * 0.10), 300) given
 // only the total amountPaidCents — same formula as createBookingCheckout,
 // run backwards. Only needed as a fallback for bookings recorded before
