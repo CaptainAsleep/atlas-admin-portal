@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { collection, doc, getDoc, getDocs } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
 // Real Stripe monthly price per tier — see TIER_PRICE_IDS in
@@ -21,6 +21,22 @@ export const TIER_PRICES = { starter: 79, pro: 149, enterprise: 299 };
 // Rename a tier on screen by editing this map, not the object keys above —
 // those only change once the underlying Firestore/Stripe tier keys do.
 export const TIER_LABELS = { starter: "Basic", pro: "Pro", enterprise: "Unlimited" };
+
+// The admin portal's one write path — everything else here is read-only
+// by design (see atlas-status.md). Firestore rules already let the admin
+// uid write fields/{fieldId}/private/{docId} (isAdmin() gets read AND
+// write there, so Michael can fix a shipping-address typo without asking
+// the owner to redo it — see firestore.rules) — this just piggybacks on
+// that same doc rather than needing a rules change of its own. merge:true
+// so this never clobbers the address fields an owner already filled in,
+// and works fine even if the private/shipping doc doesn't exist yet.
+export async function setWelcomePackageSent(fieldId, sent) {
+  await setDoc(
+    doc(db, "fields", fieldId, "private", "shipping"),
+    { sent, sentAt: sent ? serverTimestamp() : null },
+    { merge: true }
+  );
+}
 
 // Inverts bookingFeeCents = min(round(entryPriceCents * 0.10), 300) given
 // only the total amountPaidCents — same formula as createBookingCheckout,

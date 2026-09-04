@@ -1,10 +1,10 @@
 import { useState } from "react";
 import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
-  CalendarDays, Ticket, DollarSign, Clock3, TrendingUp, AlertCircle, ExternalLink, Package, Search, Wallet,
+  CalendarDays, Ticket, DollarSign, Clock3, TrendingUp, AlertCircle, ExternalLink, Package, Search, Wallet, Check,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
-import { useAdminData, summarize, TIER_LABELS } from "./hooks/useAdminData";
+import { useAdminData, summarize, TIER_LABELS, setWelcomePackageSent } from "./hooks/useAdminData";
 
 function money(cents) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -111,6 +111,31 @@ function Dashboard({ email, onSignOut }) {
   const addressRows = (s?.fieldRows || [])
     .filter((f) => f.claimed)
     .filter((f) => `${f.name} ${f.ownerName}`.toLowerCase().includes(addressSearch.toLowerCase()));
+
+  // Marking a welcome package "Sent" is the admin portal's one write path
+  // (everything else here is read-only by design). No optimistic local
+  // state — it writes, then reloads from Firestore, same as the header's
+  // own Refresh button, so this stays the single source of truth rather
+  // than risking the UI and the database disagreeing after a failed write.
+  const [sendingIds, setSendingIds] = useState(new Set());
+  const [sendError, setSendError] = useState("");
+  async function handleToggleSent(fieldId, sent) {
+    setSendError("");
+    setSendingIds((prev) => new Set(prev).add(fieldId));
+    try {
+      await setWelcomePackageSent(fieldId, sent);
+      await reload();
+    } catch (err) {
+      console.error("Couldn't update welcome package status:", err);
+      setSendError("Couldn't save — try again.");
+    } finally {
+      setSendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(fieldId);
+        return next;
+      });
+    }
+  }
 
   return (
     <div className="min-h-screen bg-cream">
@@ -352,6 +377,11 @@ function Dashboard({ email, onSignOut }) {
                 field's public listing address, since some fields have no one on-site to receive mail. Claimed
                 fields only; a blank row just means that owner hasn't filled theirs in yet.
               </p>
+              {sendError && (
+                <div className="mb-3 flex items-center gap-2 bg-negative/10 text-negative border border-negative/30 rounded-lg px-3 py-2 text-xs">
+                  <AlertCircle size={14} /> {sendError}
+                </div>
+              )}
               <div className="overflow-auto max-h-[28rem] border border-cream-dim rounded-lg">
                 <table className="w-full text-sm min-w-[640px]">
                   <thead className="sticky top-0 bg-white shadow-sm">
@@ -360,7 +390,8 @@ function Dashboard({ email, onSignOut }) {
                       <th className="pb-2 pt-2 font-medium">Owner</th>
                       <th className="pb-2 pt-2 font-medium">Recipient</th>
                       <th className="pb-2 pt-2 font-medium">Address</th>
-                      <th className="pb-2 pt-2 pr-2 font-medium">Notes</th>
+                      <th className="pb-2 pt-2 font-medium">Notes</th>
+                      <th className="pb-2 pt-2 pr-2 font-medium text-right">Sent</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -384,12 +415,37 @@ function Dashboard({ email, onSignOut }) {
                               <span className="text-ink-soft italic">not provided yet</span>
                             )}
                           </td>
-                          <td className="py-2 pr-2 text-ink-soft">{a?.notes || ""}</td>
+                          <td className="py-2 text-ink-soft">{a?.notes || ""}</td>
+                          <td className="py-2 pr-2 text-right">
+                            <button
+                              onClick={() => handleToggleSent(f.id, !a?.sent)}
+                              disabled={sendingIds.has(f.id)}
+                              className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 ${
+                                a?.sent
+                                  ? "bg-positive/10 text-positive border-positive/30 hover:bg-positive/20"
+                                  : "bg-cream text-ink-soft border-cream-line hover:border-accent hover:text-accent"
+                              }`}
+                              title={a?.sent ? "Click to unmark" : "Mark this field's welcome package as sent"}
+                            >
+                              {a?.sent ? (
+                                <>
+                                  <Check size={12} /> Sent
+                                </>
+                              ) : (
+                                "Mark sent"
+                              )}
+                            </button>
+                            {a?.sent && a?.sentAt?.toDate && (
+                              <div className="text-[10px] text-ink-soft mt-1">
+                                {a.sentAt.toDate().toLocaleDateString()}
+                              </div>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
                     {addressRows.length === 0 && (
-                      <tr><td colSpan={5} className="py-4 text-center text-ink-soft">No matches.</td></tr>
+                      <tr><td colSpan={6} className="py-4 text-center text-ink-soft">No matches.</td></tr>
                     )}
                   </tbody>
                 </table>
