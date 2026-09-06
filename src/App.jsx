@@ -1,10 +1,10 @@
 import { useState } from "react";
 import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
-  CalendarDays, Ticket, DollarSign, Clock3, TrendingUp, AlertCircle, ExternalLink, Package, Search, Wallet, Check,
+  CalendarDays, Ticket, DollarSign, AlertCircle, ExternalLink, Package, Search, Wallet, Check,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
-import { useAdminData, summarize, TIER_LABELS, setWelcomePackageSent } from "./hooks/useAdminData";
+import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent } from "./hooks/useAdminData";
 
 function money(cents) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -206,7 +206,7 @@ function Dashboard({ email, onSignOut }) {
                 icon={DollarSign}
                 label="Total Atlas Revenue"
                 value={money(s.totalAtlasRevenueCents)}
-                sub={`${money(s.bookingFeeRevenueCents)} booking fees + ${money(s.activeMRR * 100)} active MRR`}
+                sub="all-time platform fees"
                 tone="positive"
                 className="col-span-2"
               />
@@ -238,13 +238,6 @@ function Dashboard({ email, onSignOut }) {
                 tone="positive"
               />
               <StatCard
-                icon={TrendingUp}
-                label="Active MRR"
-                value={money(s.activeMRR * 100)}
-                sub={s.trialingCount ? `+${money(s.trialingPotentialMRR * 100)} if ${s.trialingCount} trial(s) convert` : "no active trials"}
-                tone="accent"
-              />
-              <StatCard
                 icon={Users}
                 label="Field owners"
                 value={s.ownersTotal}
@@ -256,44 +249,23 @@ function Dashboard({ email, onSignOut }) {
                 value={s.eventsTotal}
                 sub={`${s.upcomingEventsCount} upcoming`}
               />
-              <StatCard
-                icon={Clock3}
-                label="Trialing owners"
-                value={s.trialingCount}
-                sub="30-day free trial in progress"
-              />
-              <StatCard
-                icon={ShieldAlert}
-                label="Past due / canceled"
-                value={(s.ownersByStatus.past_due || 0) + (s.ownersByStatus.canceled || 0) + (s.ownersByStatus.unpaid || 0)}
-                sub="needs a look"
-              />
             </section>
 
             <section className="grid md:grid-cols-2 gap-6 mb-8">
               <div className="bg-white rounded-xl border border-cream-line p-5">
-                <h2 className="font-display font-bold text-navy mb-3">Owners by subscription status</h2>
+                <h2 className="font-display font-bold text-navy mb-3">Owners by fee model</h2>
                 <table className="w-full text-sm">
                   <tbody>
-                    {Object.entries(s.ownersByStatus).map(([status, count]) => (
-                      <tr key={status} className="border-t border-cream-dim">
-                        <td className="py-2 capitalize text-ink">{status.replace("_", " ")}</td>
-                        <td className="py-2 text-right font-medium text-navy">{count}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="bg-white rounded-xl border border-cream-line p-5">
-                <h2 className="font-display font-bold text-navy mb-3">Owners by tier</h2>
-                <table className="w-full text-sm">
-                  <tbody>
-                    {Object.entries(TIER_LABELS).map(([tier, label]) => (
-                      <tr key={tier} className="border-t border-cream-dim">
+                    {Object.entries(FEE_MODEL_LABELS).map(([key, label]) => (
+                      <tr key={key} className="border-t border-cream-dim">
                         <td className="py-2 text-ink">{label}</td>
-                        <td className="py-2 text-right font-medium text-navy">{s.ownersByTier[tier] || 0}</td>
+                        <td className="py-2 text-right font-medium text-navy">{s.ownersByFeeModel[key] || 0}</td>
                       </tr>
                     ))}
+                    <tr className="border-t border-cream-dim">
+                      <td className="py-2 text-ink">Not chosen yet</td>
+                      <td className="py-2 text-right font-medium text-navy">{s.ownersByFeeModel.unset || 0}</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>

@@ -2,25 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
-// Real Stripe monthly price per tier — see TIER_PRICE_IDS in
-// atlas-players-app/functions/index.js. Kept in sync manually since
-// there's no shared package between the two repos; if pricing ever
-// changes there, update it here too.
-export const TIER_PRICES = { starter: 79, pro: 149, enterprise: 299 };
-
-// Display names shown in the admin UI — kept separate from the object
-// keys above and in TIER_PRICES, which must keep matching the literal
-// owners.subscriptionTier values actually stored in Firestore (still
-// "starter"/"pro"/"enterprise", tied to TIER_PRICE_IDS in
-// atlas-players-app/functions/index.js). Per Michael's Sep 2026 pricing
-// decision (see Atlas_Pricing_Reality_Check.xlsx), the plan formerly sold
-// as "Starter" is now "Basic," and the old unlimited-fields "Enterprise"
-// plan is now "Unlimited" (up to 3 fields, flat $350/mo) — a new, narrower
-// "Enterprise" is reserved for a future 4+-field custom-pricing tier that
-// doesn't exist as stored data yet, so it has no key of its own here.
-// Rename a tier on screen by editing this map, not the object keys above —
-// those only change once the underlying Firestore/Stripe tier keys do.
-export const TIER_LABELS = { starter: "Basic", pro: "Pro", enterprise: "Unlimited" };
+// Atlas Standard has no subscription tiers anymore (removed 2026-09) —
+// every owner is $0/month, revenue is entirely the per-ticket platform
+// fee. Display labels for the fee-model split live inline below, next to
+// where they're actually used (ownersByFeeModel).
+export const FEE_MODEL_LABELS = { pass_to_player: "Pass to Player", absorb: "Absorb as Field" };
 
 // The admin portal's one write path — everything else here is read-only
 // by design (see atlas-status.md). Firestore rules already let the admin
@@ -44,10 +30,16 @@ export async function setWelcomePackageSent(fieldId, sent) {
 // bookingFeeCents started being stored directly on the booking doc
 // (2026-09-02); every booking from that point on has the real number.
 function estimateBookingFeeCents(amountPaidCents) {
-  const entryUncapped = Math.round(amountPaidCents / 1.1);
+  // Only ever a fallback for a paid booking somehow missing
+  // bookingFeeCents outright (shouldn't happen going forward — the
+  // webhook always writes it) — reverse-engineers Atlas Standard's fee
+  // (3.5% + $1.30, capped at $5.00) assuming the pass-to-player fee
+  // model, since amountPaidCents alone can't tell an "absorb" booking's
+  // smaller entry price apart from a genuinely cheaper ticket.
+  const entryUncapped = Math.round((amountPaidCents - 130) / 1.035);
   const feeUncapped = amountPaidCents - entryUncapped;
-  if (feeUncapped >= 0 && feeUncapped <= 300) return feeUncapped;
-  return 300;
+  if (feeUncapped >= 0 && feeUncapped <= 500) return feeUncapped;
+  return 500;
 }
 
 /**
@@ -131,27 +123,13 @@ export function summarize(data) {
   const fieldsClaimed = fields.filter((f) => f.claimed === true).length;
   const fieldsPending = fields.filter((f) => f.claimPending === true).length;
 
-  const ownersByStatus = {};
-  const ownersByTier = {};
+  const ownersByFeeModel = {};
   let payoutsEnabledCount = 0;
-  let activeMRR = 0;
-  let trialingCount = 0;
-  let trialingPotentialMRR = 0;
 
   for (const o of owners) {
-    const status = o.subscriptionStatus || "none";
-    ownersByStatus[status] = (ownersByStatus[status] || 0) + 1;
-    if (o.subscriptionTier) {
-      ownersByTier[o.subscriptionTier] = (ownersByTier[o.subscriptionTier] || 0) + 1;
-    }
+    const feeModel = o.feeModel || "unset";
+    ownersByFeeModel[feeModel] = (ownersByFeeModel[feeModel] || 0) + 1;
     if (o.payoutsEnabled) payoutsEnabledCount += 1;
-
-    const tierPrice = TIER_PRICES[o.subscriptionTier] || 0;
-    if (status === "active") activeMRR += tierPrice;
-    if (status === "trialing") {
-      trialingCount += 1;
-      trialingPotentialMRR += tierPrice;
-    }
   }
 
   const paidBookings = bookings.filter((b) => b.paid === true);
@@ -212,7 +190,7 @@ export function summarize(data) {
       eventsCount: fieldEvents.length,
       paidBookingsCount: fieldPaidBookings.length,
       revenueCents,
-      subscriptionStatus: owner?.subscriptionStatus || null,
+      feeModel: owner?.feeModel || null,
       payoutsEnabled: owner?.payoutsEnabled === true,
       shippingAddress: f.shippingAddress || null,
     };
@@ -223,25 +201,21 @@ export function summarize(data) {
     fieldsClaimed,
     fieldsPending,
     ownersTotal: owners.length,
-    ownersByStatus,
-    ownersByTier,
+    ownersByFeeModel,
     payoutsEnabledCount,
-    activeMRR,
-    trialingCount,
-    trialingPotentialMRR,
     eventsTotal: events.length,
     upcomingEventsCount: upcomingEvents.length,
     paidBookingsTotal: paidBookings.length,
     paidBookingsThisMonth: paidBookingsThisMonth.length,
     bookingFeeRevenueCents,
     payoutRevenueCents,
-    // "Total Atlas revenue" per Michael: all-time booking fees plus this
-    // month's active subscription revenue. Not a true lifetime total —
-    // Firestore has no historical ledger of past subscription payments,
-    // only each owner's current tier/status — so this is booking fees
-    // (exact, cumulative) blended with a current-month recurring snapshot,
-    // not two numbers on the same time basis.
-    totalAtlasRevenueCents: bookingFeeRevenueCents + Math.round(activeMRR * 100),
+    // "Total Atlas revenue" — with the flat subscription tiers gone,
+    // Atlas's entire revenue is the per-ticket platform fee, so this is
+    // just bookingFeeRevenueCents today. Kept as its own named field
+    // (rather than inlining bookingFeeRevenueCents at the call site)
+    // since Atlas Major will add its own flat-fee revenue here once it
+    // ships, without every caller needing to know that.
+    totalAtlasRevenueCents: bookingFeeRevenueCents,
     estimatedFeeCount,
     fieldRows: fieldRows.sort((a, b) => b.revenueCents - a.revenueCents),
   };
