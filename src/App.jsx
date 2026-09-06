@@ -246,19 +246,20 @@ function Dashboard({ email, onSignOut }) {
               <StatCard
                 icon={UserCircle2}
                 label="Players"
-                value={s.playersTotal}
-                sub="with a public profile"
+                value={s.playersTotal ?? "—"}
+                sub={s.playersTotal == null ? "couldn't load — check permissions" : "with a public profile"}
               />
               <StatCard
                 icon={Shield}
                 label="Teams"
-                value={s.teamsTotal}
+                value={s.teamsTotal ?? "—"}
+                sub={s.teamsTotal == null ? "couldn't load — check permissions" : undefined}
               />
               <StatCard
                 icon={Award}
                 label="Patches received"
-                value={s.patchesTotal}
-                sub="across all players"
+                value={s.patchesTotal ?? "—"}
+                sub={s.patchesTotal == null ? "couldn't load — check permissions" : "across all players"}
               />
               <StatCard
                 icon={Bookmark}

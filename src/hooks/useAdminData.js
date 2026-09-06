@@ -65,31 +65,53 @@ export function useAdminData() {
     setLoading(true);
     setError(null);
     try {
-      const [fieldsSnap, ownersSnap, eventsSnap, playersSnap, teamsSnap, patchesSnap] = await Promise.all([
+      const [fieldsSnap, ownersSnap, eventsSnap] = await Promise.all([
         getDocs(collection(db, "fields")),
         getDocs(collection(db, "owners")),
         getDocs(collection(db, "events")),
+      ]);
+
+      let fields = fieldsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const owners = ownersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const events = eventsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      // Players/Teams/Patches received are newer, additive stats — each
+      // caught individually (rather than inside the Promise.all above) so
+      // a permissions problem on any one of them can't take the ENTIRE
+      // dashboard down the way it did when they were unguarded (a real
+      // "Missing or insufficient permissions" hit here on 2026-09-06,
+      // most likely stale/undeployed Firestore rules relative to this
+      // repo's assumptions — the rules file text does grant public read on
+      // all three of these, but that only matters once actually deployed).
+      // null means "couldn't load," not "zero" — kept distinct from 0 all
+      // the way to the UI rather than silently showing a wrong count.
+      const [playersSnap, teamsSnap, patchesSnap] = await Promise.all([
         // publicProfiles, not users — the admin uid has no read grant on
         // users/{uid} itself (each player's own private doc, self-access
         // only), but every account gets a publicProfiles/{uid} mirror at
         // signup (self-healing for older accounts too — see useAuth.js),
         // and that collection is fully public-read. Counting it is an
         // exact player count, not an estimate, with no rules change needed.
-        getDocs(collection(db, "publicProfiles")),
-        getDocs(collection(db, "teams")),
+        getDocs(collection(db, "publicProfiles")).catch((err) => {
+          console.error("publicProfiles load failed:", err);
+          return null;
+        }),
+        getDocs(collection(db, "teams")).catch((err) => {
+          console.error("teams load failed:", err);
+          return null;
+        }),
         // A collectionGroup query, not a per-user fetch — safe here (unlike
         // the "bookings" collectionGroup this file deliberately avoids
         // above) because "patches" only ever exists as users/{uid}/patches;
         // no other subcollection anywhere shares that name to collide with.
-        getDocs(collectionGroup(db, "patches")),
+        getDocs(collectionGroup(db, "patches")).catch((err) => {
+          console.error("patches load failed:", err);
+          return null;
+        }),
       ]);
-
-      let fields = fieldsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const owners = ownersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const events = eventsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const playersTotal = playersSnap.size;
-      const teamsTotal = teamsSnap.size;
-      const patchesTotal = patchesSnap.size;
+      const playersTotal = playersSnap ? playersSnap.size : null;
+      const teamsTotal = teamsSnap ? teamsSnap.size : null;
+      const patchesTotal = patchesSnap ? patchesSnap.size : null;
 
       // Private, field-scoped welcome-package shipping addresses — only
       // fetched for claimed fields (an unclaimed field has no owner to
