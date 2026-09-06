@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
   CalendarDays, Ticket, DollarSign, AlertCircle, ExternalLink, Package, Search, Wallet, Check,
+  UserCircle2, Shield, Award, Bookmark,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
 import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent } from "./hooks/useAdminData";
@@ -231,13 +232,6 @@ function Dashboard({ email, onSignOut }) {
                 sub={`${s.paidBookingsThisMonth} this month`}
               />
               <StatCard
-                icon={DollarSign}
-                label="Booking fee revenue"
-                value={money(s.bookingFeeRevenueCents)}
-                sub={s.estimatedFeeCount ? `${s.estimatedFeeCount} estimated (pre-tracking)` : "all-time, exact"}
-                tone="positive"
-              />
-              <StatCard
                 icon={Users}
                 label="Field owners"
                 value={s.ownersTotal}
@@ -248,6 +242,29 @@ function Dashboard({ email, onSignOut }) {
                 label="Events"
                 value={s.eventsTotal}
                 sub={`${s.upcomingEventsCount} upcoming`}
+              />
+              <StatCard
+                icon={UserCircle2}
+                label="Players"
+                value={s.playersTotal}
+                sub="with a public profile"
+              />
+              <StatCard
+                icon={Shield}
+                label="Teams"
+                value={s.teamsTotal}
+              />
+              <StatCard
+                icon={Award}
+                label="Patches received"
+                value={s.patchesTotal}
+                sub="across all players"
+              />
+              <StatCard
+                icon={Bookmark}
+                label="Saved events"
+                value={s.savedEventsTotal}
+                sub="currently favorited, not cumulative"
               />
             </section>
 
@@ -425,9 +442,10 @@ function Dashboard({ email, onSignOut }) {
             </section>
 
             <p className="text-xs text-ink-soft mt-6">
-              Last loaded {data.fetchedAt.toLocaleTimeString()}. "Booking fee revenue" is Atlas's own cut
-              (the 10%/$3-cap fee), not the full amount players paid — most of that goes straight to field
-              owners. Figures reflect Firestore, not Stripe directly, so refunds aren't backed out yet.
+              Last loaded {data.fetchedAt.toLocaleTimeString()}. "Total Atlas Revenue" is Atlas's own cut
+              (Atlas Standard's platform fee — 3.5% + $1.30, capped at $5.00), not the full amount players
+              paid — most of that goes straight to field owners as "Total Payout Revenue." Figures reflect
+              Firestore, not Stripe directly, so refunds aren't backed out yet.
             </p>
           </>
         )}

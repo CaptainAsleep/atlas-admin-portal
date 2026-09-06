@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, collectionGroup, doc, getDoc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
 // Atlas Standard has no subscription tiers anymore (removed 2026-09) —
@@ -65,15 +65,31 @@ export function useAdminData() {
     setLoading(true);
     setError(null);
     try {
-      const [fieldsSnap, ownersSnap, eventsSnap] = await Promise.all([
+      const [fieldsSnap, ownersSnap, eventsSnap, playersSnap, teamsSnap, patchesSnap] = await Promise.all([
         getDocs(collection(db, "fields")),
         getDocs(collection(db, "owners")),
         getDocs(collection(db, "events")),
+        // publicProfiles, not users — the admin uid has no read grant on
+        // users/{uid} itself (each player's own private doc, self-access
+        // only), but every account gets a publicProfiles/{uid} mirror at
+        // signup (self-healing for older accounts too — see useAuth.js),
+        // and that collection is fully public-read. Counting it is an
+        // exact player count, not an estimate, with no rules change needed.
+        getDocs(collection(db, "publicProfiles")),
+        getDocs(collection(db, "teams")),
+        // A collectionGroup query, not a per-user fetch — safe here (unlike
+        // the "bookings" collectionGroup this file deliberately avoids
+        // above) because "patches" only ever exists as users/{uid}/patches;
+        // no other subcollection anywhere shares that name to collide with.
+        getDocs(collectionGroup(db, "patches")),
       ]);
 
       let fields = fieldsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const owners = ownersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const events = eventsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const playersTotal = playersSnap.size;
+      const teamsTotal = teamsSnap.size;
+      const patchesTotal = patchesSnap.size;
 
       // Private, field-scoped welcome-package shipping addresses — only
       // fetched for claimed fields (an unclaimed field has no owner to
@@ -99,7 +115,7 @@ export function useAdminData() {
         snap.docs.forEach((d) => bookings.push({ id: d.id, eventId: events[i].id, ...d.data() }));
       });
 
-      setData({ fields, owners, events, bookings, fetchedAt: new Date() });
+      setData({ fields, owners, events, bookings, playersTotal, teamsTotal, patchesTotal, fetchedAt: new Date() });
     } catch (err) {
       console.error("Admin dashboard load failed:", err);
       setError(err);
@@ -118,7 +134,7 @@ export function useAdminData() {
 /** Turns the raw snapshot from useAdminData into the numbers the dashboard shows. */
 export function summarize(data) {
   if (!data) return null;
-  const { fields, owners, events, bookings } = data;
+  const { fields, owners, events, bookings, playersTotal, teamsTotal, patchesTotal } = data;
 
   const fieldsClaimed = fields.filter((f) => f.claimed === true).length;
   const fieldsPending = fields.filter((f) => f.claimPending === true).length;
@@ -171,6 +187,13 @@ export function summarize(data) {
     return d && d >= now && !e.canceled && !e.deleted;
   });
 
+  // interestCount is a denormalized, client-maintained counter that goes up
+  // or down as players favorite/unfavorite an event (see toggleFavorite in
+  // useFavorites.js) — already sitting on each event doc we've already
+  // fetched, so this is a live snapshot ("currently saved") summed with no
+  // extra Firestore read, not a cumulative "ever saved" total.
+  const savedEventsTotal = events.reduce((sum, e) => sum + (e.interestCount || 0), 0);
+
   const fieldRows = fields.map((f) => {
     const owner = owners.find((o) => o.id === f.ownerId);
     const fieldEvents = events.filter((e) => e.fieldId === f.id);
@@ -209,6 +232,10 @@ export function summarize(data) {
     paidBookingsThisMonth: paidBookingsThisMonth.length,
     bookingFeeRevenueCents,
     payoutRevenueCents,
+    playersTotal,
+    teamsTotal,
+    patchesTotal,
+    savedEventsTotal,
     // "Total Atlas revenue" — with the flat subscription tiers gone,
     // Atlas's entire revenue is the per-ticket platform fee, so this is
     // just bookingFeeRevenueCents today. Kept as its own named field
