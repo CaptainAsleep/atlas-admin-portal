@@ -11,6 +11,11 @@ function money(cents) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+// Display text for a field's status (see INACTIVE_FIELD_STATUSES in
+// useAdminData.js) — hover the badge in the Fields table for Michael's
+// own notes on why a given field landed in one of these.
+const FIELD_STATUS_LABELS = { closed: "closed", "no-airsoft": "no airsoft", relocated: "relocated" };
+
 function LoginScreen({ onSignIn }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -107,7 +112,7 @@ function Dashboard({ email, onSignOut }) {
   const [fieldSearch, setFieldSearch] = useState("");
   const [addressSearch, setAddressSearch] = useState("");
   const fieldRows = (s?.fieldRows || []).filter((f) =>
-    `${f.name} ${f.ownerName}`.toLowerCase().includes(fieldSearch.toLowerCase())
+    `${f.name} ${f.ownerName} ${f.status}`.toLowerCase().includes(fieldSearch.toLowerCase())
   );
   const addressRows = (s?.fieldRows || [])
     .filter((f) => f.claimed)
@@ -223,7 +228,10 @@ function Dashboard({ email, onSignOut }) {
                 icon={MapPin}
                 label="Fields claimed"
                 value={`${s.fieldsClaimed} / ${s.fieldsTotal}`}
-                sub={s.fieldsPending ? `${s.fieldsPending} pending claim` : "no pending claims"}
+                sub={[
+                  s.fieldsPending ? `${s.fieldsPending} pending claim` : "no pending claims",
+                  s.fieldsInactive ? `${s.fieldsInactive} closed/no-airsoft excluded` : null,
+                ].filter(Boolean).join(" · ")}
               />
               <StatCard
                 icon={Ticket}
@@ -313,7 +321,8 @@ function Dashboard({ email, onSignOut }) {
                     <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
                       <th className="pb-2 pt-2 pl-2 font-medium">Field</th>
                       <th className="pb-2 pt-2 font-medium">Owner</th>
-                      <th className="pb-2 pt-2 font-medium">Status</th>
+                      <th className="pb-2 pt-2 font-medium">Field status</th>
+                      <th className="pb-2 pt-2 font-medium">Claim</th>
                       <th className="pb-2 pt-2 font-medium text-right">Events</th>
                       <th className="pb-2 pt-2 font-medium text-right">Paid bookings</th>
                       <th className="pb-2 pt-2 pr-2 font-medium text-right">Revenue</th>
@@ -324,6 +333,15 @@ function Dashboard({ email, onSignOut }) {
                       <tr key={f.id} className="border-t border-cream-dim">
                         <td className="py-2 pl-2 text-navy font-medium">{f.name}</td>
                         <td className="py-2 text-ink">{f.ownerName}</td>
+                        <td className="py-2 text-ink" title={f.statusNotes || undefined}>
+                          {f.status === "active" ? (
+                            <span className="text-positive">active</span>
+                          ) : (
+                            <span className="text-ink-soft underline decoration-dotted">
+                              {FIELD_STATUS_LABELS[f.status] || f.status}
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2 text-ink">
                           {f.claimPending ? (
                             <span className="text-accent">pending claim</span>
@@ -339,7 +357,7 @@ function Dashboard({ email, onSignOut }) {
                       </tr>
                     ))}
                     {fieldRows.length === 0 && (
-                      <tr><td colSpan={6} className="py-4 text-center text-ink-soft">No fields match "{fieldSearch}".</td></tr>
+                      <tr><td colSpan={7} className="py-4 text-center text-ink-soft">No fields match "{fieldSearch}".</td></tr>
                     )}
                   </tbody>
                 </table>

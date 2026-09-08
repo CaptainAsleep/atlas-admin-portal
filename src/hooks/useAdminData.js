@@ -158,8 +158,22 @@ export function summarize(data) {
   if (!data) return null;
   const { fields, owners, events, bookings, playersTotal, teamsTotal, patchesTotal } = data;
 
-  const fieldsClaimed = fields.filter((f) => f.claimed === true).length;
-  const fieldsPending = fields.filter((f) => f.claimPending === true).length;
+  // Same three statuses the player app now hides from Home/team-picker
+  // listings as of the 2026-09-07/08 field data-quality pass (seed-data.mjs
+  // "update fields", src/App.jsx) — a field marked "closed" (confirmed shut
+  // down or sold), "no-airsoft" (an operating business, e.g. paintball-
+  // only, that just never ran airsoft), or "relocated" isn't a real,
+  // biddable field anymore. Excluded from the headline counts below so
+  // "Fields claimed" reflects fields that could actually still be claimed,
+  // not a total padded with dead listings — but NOT excluded from
+  // fieldRows/the Fields table itself, since Michael's own notes on why
+  // each one is inactive are exactly the kind of thing an admin dashboard
+  // (unlike the player-facing app) should keep visible, not hide.
+  const INACTIVE_FIELD_STATUSES = ["closed", "no-airsoft", "relocated"];
+  const activeFields = fields.filter((f) => !INACTIVE_FIELD_STATUSES.includes(f.status));
+  const fieldsInactive = fields.length - activeFields.length;
+  const fieldsClaimed = activeFields.filter((f) => f.claimed === true).length;
+  const fieldsPending = activeFields.filter((f) => f.claimPending === true).length;
 
   const ownersByFeeModel = {};
   let payoutsEnabledCount = 0;
@@ -238,13 +252,19 @@ export function summarize(data) {
       feeModel: owner?.feeModel || null,
       payoutsEnabled: owner?.payoutsEnabled === true,
       shippingAddress: f.shippingAddress || null,
+      // "active" covers both an explicit status: "active" and a field with
+      // no status set at all (older seed rows from before this field
+      // existed) — absence has never meant "inactive" in this schema.
+      status: f.status || "active",
+      statusNotes: f.notes || null,
     };
   });
 
   return {
-    fieldsTotal: fields.length,
+    fieldsTotal: activeFields.length,
     fieldsClaimed,
     fieldsPending,
+    fieldsInactive,
     ownersTotal: owners.length,
     ownersByFeeModel,
     payoutsEnabledCount,
