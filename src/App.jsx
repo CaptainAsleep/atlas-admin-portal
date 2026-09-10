@@ -61,7 +61,7 @@ function LoginScreen({ onSignIn }) {
           <button
             type="submit"
             disabled={busy}
-            className="w-full rounded-lg bg-navy text-white font-medium py-2 text-sm disabled:opacity-60"
+            className="w-full rounded-full bg-navy text-white font-medium py-2.5 text-sm shadow-lg shadow-navy/25 disabled:opacity-60 disabled:shadow-none"
           >
             {busy ? "Signing in…" : "Sign in"}
           </button>
@@ -90,11 +90,13 @@ function NotAuthorized({ email, onSignOut }) {
 
 function StatCard({ icon: Icon, label, value, sub, tone = "navy", className = "" }) {
   const toneClasses = { navy: "text-navy", positive: "text-positive", accent: "text-accent" };
+  const badgeClasses = { navy: "bg-cream text-navy", positive: "bg-positive/10 text-positive", accent: "bg-accent/10 text-accent" };
   return (
-    <div className={`bg-white rounded-xl border border-cream-line p-4 ${className}`}>
-      <div className="flex items-center gap-2 text-ink-soft text-xs font-medium uppercase tracking-wide mb-2">
-        <Icon size={14} /> {label}
+    <div className={`bg-white rounded-2xl shadow-md p-4 ${className}`}>
+      <div className={`w-7 h-7 rounded-full flex items-center justify-center mb-2.5 ${badgeClasses[tone]}`}>
+        <Icon size={14} />
       </div>
+      <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-0.5">{label}</div>
       <div className={`font-display text-2xl font-bold ${toneClasses[tone]}`}>{value}</div>
       {sub && <div className="text-xs text-ink-soft mt-1">{sub}</div>}
     </div>
@@ -188,7 +190,7 @@ function Dashboard({ email, onSignOut }) {
           page — the real fix for "scroll forever to reach Addresses" as
           Fields grows, independent of section order or either list's
           length. */}
-      <nav className="sticky top-0 z-20 bg-cream/95 backdrop-blur border-b border-cream-line px-6 py-2 flex items-center gap-4 text-sm">
+      <nav className="sticky top-0 z-20 bg-cream/95 backdrop-blur shadow-sm px-6 py-2 flex items-center gap-4 text-sm">
         <a href="#fields" className="text-ink hover:text-accent">Fields</a>
         <a href="#addresses" className="text-ink hover:text-accent">Welcome package addresses</a>
       </nav>
@@ -278,7 +280,7 @@ function Dashboard({ email, onSignOut }) {
             </section>
 
             <section className="grid md:grid-cols-2 gap-6 mb-8">
-              <div className="bg-white rounded-xl border border-cream-line p-5">
+              <div className="bg-white rounded-2xl shadow-md p-5">
                 <h2 className="font-display font-bold text-navy mb-3">Owners by fee model</h2>
                 <table className="w-full text-sm">
                   <tbody>
@@ -297,7 +299,7 @@ function Dashboard({ email, onSignOut }) {
               </div>
             </section>
 
-            <section id="fields" className="bg-white rounded-xl border border-cream-line p-5 scroll-mt-16">
+            <section id="fields" className="bg-white rounded-2xl shadow-md p-5 scroll-mt-16">
               <div className="flex items-center justify-between mb-3 gap-4 flex-wrap">
                 <h2 className="font-display font-bold text-navy">Fields ({fieldRows.length}{fieldSearch ? ` of ${s.fieldRows.length}` : ""})</h2>
                 <div className="relative">
@@ -364,7 +366,7 @@ function Dashboard({ email, onSignOut }) {
               </div>
             </section>
 
-            <section id="addresses" className="bg-white rounded-xl border border-cream-line p-5 mt-8 scroll-mt-16">
+            <section id="addresses" className="bg-white rounded-2xl shadow-md p-5 mt-8 scroll-mt-16">
               <div className="flex items-center justify-between mb-1 gap-4 flex-wrap">
                 <h2 className="font-display font-bold text-navy flex items-center gap-2">
                   <Package size={16} /> Welcome package addresses ({addressRows.length}{addressSearch ? ` of ${s.fieldRows.filter((f) => f.claimed).length}` : ""})
