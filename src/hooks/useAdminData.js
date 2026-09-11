@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { collection, collectionGroup, doc, getDoc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, collectionGroup, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
 // Atlas Standard has no subscription tiers anymore (removed 2026-09) —
@@ -22,6 +22,39 @@ export async function setWelcomePackageSent(fieldId, sent) {
     { sent, sentAt: sent ? serverTimestamp() : null },
     { merge: true }
   );
+}
+
+// Approve a pending field claim (fields/{fieldId}.claimPending === true),
+// granting ownership to whoever requested it. This relies on the isAdmin()
+// write grant just added to fields/{fieldId} in firestore.rules — this
+// writes the field doc directly, unlike setWelcomePackageSent above which
+// only ever touched the private/shipping subdoc.
+//
+// Note: unlike a normal self-serve claim (see claimField() in
+// atlas-owners-app), this does NOT increment the owner's
+// claimedFieldCount — that would require also granting isAdmin() a write
+// path on owners/{ownerId} in firestore.rules, which felt like more surface
+// area than this small fix warranted. Accepted as a minor, known
+// inconsistency rather than expanding the rules further.
+export async function approveFieldClaim(fieldId, requestedByUid) {
+  await updateDoc(doc(db, "fields", fieldId), {
+    ownerId: requestedByUid,
+    claimed: true,
+    claimVerification: "manual",
+    claimPending: false,
+    claimRequestedBy: null,
+    claimRequestedByEmail: null,
+  });
+}
+
+// Reject a pending field claim — clears the request and leaves the field
+// unclaimed so it (or a corrected claim) can be requested again later.
+export async function rejectFieldClaim(fieldId) {
+  await updateDoc(doc(db, "fields", fieldId), {
+    claimPending: false,
+    claimRequestedBy: null,
+    claimRequestedByEmail: null,
+  });
 }
 
 // Inverts bookingFeeCents = min(round(entryPriceCents * 0.10), 300) given
@@ -245,6 +278,8 @@ export function summarize(data) {
       name: f.name || f.id,
       claimed: f.claimed === true,
       claimPending: f.claimPending === true,
+      claimRequestedBy: f.claimRequestedBy || null,
+      claimRequestedByEmail: f.claimRequestedByEmail || null,
       ownerName: owner?.name || owner?.email || (f.claimed ? "(owner record missing)" : "—"),
       eventsCount: fieldEvents.length,
       paidBookingsCount: fieldPaidBookings.length,

@@ -2,10 +2,10 @@ import { useState } from "react";
 import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
   CalendarDays, Ticket, DollarSign, AlertCircle, ExternalLink, Package, Search, Wallet, Check,
-  UserCircle2, Shield, Award, Bookmark,
+  UserCircle2, Shield, Award, Bookmark, X,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
-import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent } from "./hooks/useAdminData";
+import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim } from "./hooks/useAdminData";
 
 function money(cents) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -138,6 +138,43 @@ function Dashboard({ email, onSignOut }) {
       setSendError("Couldn't save — try again.");
     } finally {
       setSendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(fieldId);
+        return next;
+      });
+    }
+  }
+
+  const [claimActionIds, setClaimActionIds] = useState(new Set());
+  const [claimActionError, setClaimActionError] = useState("");
+  async function handleApproveClaim(fieldId, requestedByUid) {
+    setClaimActionError("");
+    setClaimActionIds((prev) => new Set(prev).add(fieldId));
+    try {
+      await approveFieldClaim(fieldId, requestedByUid);
+      await reload();
+    } catch (err) {
+      console.error("Couldn't approve field claim:", err);
+      setClaimActionError("Couldn't approve — try again.");
+    } finally {
+      setClaimActionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(fieldId);
+        return next;
+      });
+    }
+  }
+  async function handleRejectClaim(fieldId) {
+    setClaimActionError("");
+    setClaimActionIds((prev) => new Set(prev).add(fieldId));
+    try {
+      await rejectFieldClaim(fieldId);
+      await reload();
+    } catch (err) {
+      console.error("Couldn't reject field claim:", err);
+      setClaimActionError("Couldn't reject — try again.");
+    } finally {
+      setClaimActionIds((prev) => {
         const next = new Set(prev);
         next.delete(fieldId);
         return next;
@@ -313,6 +350,11 @@ function Dashboard({ email, onSignOut }) {
                   />
                 </div>
               </div>
+              {claimActionError && (
+                <div className="mb-3 flex items-center gap-2 bg-negative/10 text-negative border border-negative/30 rounded-lg px-3 py-2 text-xs">
+                  <AlertCircle size={14} /> {claimActionError}
+                </div>
+              )}
               {/* Capped height + its own scroll, not the page's — this is
                   the part that actually keeps the table usable once it's
                   hundreds of rows long, not just findable via the search
@@ -346,7 +388,25 @@ function Dashboard({ email, onSignOut }) {
                         </td>
                         <td className="py-2 text-ink">
                           {f.claimPending ? (
-                            <span className="text-accent">pending claim</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-accent">pending claim</span>
+                              <button
+                                onClick={() => handleApproveClaim(f.id, f.claimRequestedBy)}
+                                disabled={claimActionIds.has(f.id) || !f.claimRequestedBy}
+                                className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 bg-positive/10 text-positive border-positive/30 hover:bg-positive/20"
+                                title={f.claimRequestedByEmail ? `Approve claim from ${f.claimRequestedByEmail}` : "Approve"}
+                              >
+                                <Check size={12} /> Approve
+                              </button>
+                              <button
+                                onClick={() => handleRejectClaim(f.id)}
+                                disabled={claimActionIds.has(f.id)}
+                                className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 bg-cream text-ink-soft border-cream-line hover:border-accent hover:text-accent"
+                                title="Reject"
+                              >
+                                <X size={12} /> Reject
+                              </button>
+                            </div>
                           ) : f.claimed ? (
                             <span className="text-positive">claimed</span>
                           ) : (
