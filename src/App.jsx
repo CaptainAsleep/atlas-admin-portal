@@ -331,6 +331,7 @@ function Dashboard({ email, onSignOut }) {
   // case regardless of how long either list gets.
   const [fieldSearch, setFieldSearch] = useState("");
   const [addressSearch, setAddressSearch] = useState("");
+  const [selectedField, setSelectedField] = useState(null);
   const fieldRows = (s?.fieldRows || []).filter((f) =>
     `${f.name} ${f.ownerName} ${f.status}`.toLowerCase().includes(fieldSearch.toLowerCase())
   );
@@ -593,7 +594,15 @@ function Dashboard({ email, onSignOut }) {
                   <tbody>
                     {fieldRows.map((f) => (
                       <tr key={f.id} className="border-t border-cream-dim">
-                        <td className="py-2 pl-2 text-navy font-medium">{f.name}</td>
+                        <td className="py-2 pl-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedField(f)}
+                            className="text-navy font-medium hover:underline text-left"
+                          >
+                            {f.name}
+                          </button>
+                        </td>
                         <td className="py-2 text-ink">{f.ownerName}</td>
                         <td className="py-2 text-ink" title={f.statusNotes || undefined}>
                           {f.status === "active" ? (
@@ -749,6 +758,9 @@ function Dashboard({ email, onSignOut }) {
           </>
         )}
       </main>
+      {selectedField && (
+        <FieldModal field={selectedField} onClose={() => setSelectedField(null)} />
+      )}
     </div>
   );
 }
