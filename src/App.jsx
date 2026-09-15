@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
   CalendarDays, Ticket, DollarSign, AlertCircle, ExternalLink, Package, Search, Wallet, Check,
   UserCircle2, Shield, Award, Bookmark, X,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
-import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim } from "./hooks/useAdminData";
+import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote } from "./hooks/useAdminData";
 
 function money(cents) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -99,6 +99,224 @@ function StatCard({ icon: Icon, label, value, sub, tone = "navy", className = ""
       <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-0.5">{label}</div>
       <div className={`font-display text-2xl font-bold ${toneClasses[tone]}`}>{value}</div>
       {sub && <div className="text-xs text-ink-soft mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function InfoRow({ label, value }) {
+  return (
+    <div>
+      <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide">{label}</div>
+      <div className="text-ink text-sm">{value}</div>
+    </div>
+  );
+}
+
+// Click a field's name in the Fields table to open this. Prefilled with
+// whatever's already on hand from fieldRows (see useAdminData.js) — no
+// extra Firestore reads for any of that. Notes are the one thing genuinely
+// fetched here, on open, since they're the one part of this that can
+// actually grow over time and isn't worth loading for every field on
+// every dashboard refresh.
+function FieldModal({ field: f, onClose }) {
+  const [notes, setNotes] = useState([]);
+  const [notesLoading, setNotesLoading] = useState(true);
+  const [noteText, setNoteText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [noteError, setNoteError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setNotesLoading(true);
+    getFieldNotes(f.id)
+      .then((rows) => {
+        if (!cancelled) setNotes(rows);
+      })
+      .catch((err) => {
+        console.error("Couldn't load field notes:", err);
+        if (!cancelled) setNoteError("Couldn't load notes.");
+      })
+      .finally(() => {
+        if (!cancelled) setNotesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [f.id]);
+
+  async function handleAddNote() {
+    const text = noteText.trim();
+    if (!text) return;
+    setSaving(true);
+    setNoteError("");
+    try {
+      await addFieldNote(f.id, text);
+      setNoteText("");
+      setNotes(await getFieldNotes(f.id));
+    } catch (err) {
+      console.error("Couldn't save field note:", err);
+      setNoteError("Couldn't save — try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const a = f.shippingAddress;
+  const hasAddress = a && (a.line1 || a.city);
+
+  return (
+    <div className="fixed inset-0 z-30 bg-navy/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-white border-b border-cream-line px-6 py-4 flex items-center justify-between z-10 rounded-t-2xl">
+          <h2 className="font-display font-bold text-navy text-lg">{f.name}</h2>
+          <button onClick={onClose} className="text-ink-soft hover:text-navy" title="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <InfoRow label="Address" value={[f.address, f.city].filter(Boolean).join(", ") || "—"} />
+            <InfoRow label="Phone" value={f.phone || "—"} />
+            <InfoRow
+              label="Website"
+              value={
+                f.website ? (
+                  <a href={f.website} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline break-all">
+                    {f.website}
+                  </a>
+                ) : (
+                  "—"
+                )
+              }
+            />
+            <InfoRow label="Type" value={f.indoorOutdoor || "—"} />
+            <InfoRow
+              label="Field status"
+              value={
+                <>
+                  <span className={f.status === "active" ? "text-positive" : "text-ink-soft"}>
+                    {FIELD_STATUS_LABELS[f.status] || f.status}
+                  </span>
+                  {f.statusNotes && <span className="block text-xs text-ink-soft mt-0.5">{f.statusNotes}</span>}
+                </>
+              }
+            />
+            <InfoRow
+              label="Claim"
+              value={f.claimPending ? "pending claim" : f.claimed ? "claimed" : "unclaimed"}
+            />
+            <InfoRow label="Owner" value={f.ownerName} />
+            <InfoRow label="Owner email" value={f.ownerEmail || "—"} />
+            <InfoRow
+              label="Fee model"
+              value={f.feeModel ? FEE_MODEL_LABELS[f.feeModel] || f.feeModel : "not chosen yet"}
+            />
+            <InfoRow label="Payouts enabled" value={f.payoutsEnabled ? "yes" : "no"} />
+            <InfoRow label="Events" value={f.eventsCount} />
+            <InfoRow label="Paid bookings" value={f.paidBookingsCount} />
+            <InfoRow label="Revenue (Atlas fee)" value={money(f.revenueCents)} />
+          </div>
+
+          {(f.facebook || f.instagram || f.discord || f.youtube) && (
+            <div>
+              <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-1.5">Social</div>
+              <div className="flex flex-wrap gap-3 text-sm">
+                {f.facebook && (
+                  <a href={f.facebook} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                    Facebook
+                  </a>
+                )}
+                {f.instagram && (
+                  <a href={f.instagram} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                    Instagram
+                  </a>
+                )}
+                {f.discord && (
+                  <a href={f.discord} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                    Discord
+                  </a>
+                )}
+                {f.youtube && (
+                  <a href={f.youtube} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                    YouTube
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
+          {f.about && (
+            <div>
+              <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-1.5">About</div>
+              <p className="text-sm text-ink">{f.about}</p>
+            </div>
+          )}
+
+          <div>
+            <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-1.5">Welcome package</div>
+            {hasAddress ? (
+              <p className="text-sm text-ink">
+                {a.recipientName ? `${a.recipientName} — ` : ""}
+                {a.line1}
+                {a.line2 ? `, ${a.line2}` : ""}, {[a.city, a.state, a.zip].filter(Boolean).join(", ")}
+                {a.sent && (
+                  <span className="ml-2 text-positive text-xs">
+                    ✓ sent{a.sentAt?.toDate ? ` ${a.sentAt.toDate().toLocaleDateString()}` : ""}
+                  </span>
+                )}
+              </p>
+            ) : (
+              <p className="text-sm text-ink-soft italic">not provided yet</p>
+            )}
+          </div>
+
+          <div className="border-t border-cream-line pt-4">
+            <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-2">Notes</div>
+            {notesLoading ? (
+              <p className="text-sm text-ink-soft">Loading notes…</p>
+            ) : notes.length === 0 ? (
+              <p className="text-sm text-ink-soft italic mb-3">No notes yet.</p>
+            ) : (
+              <div className="space-y-3 mb-3 max-h-48 overflow-y-auto pr-1">
+                {notes.map((n) => (
+                  <div key={n.id} className="text-sm">
+                    <div className="text-ink whitespace-pre-wrap">{n.text}</div>
+                    <div className="text-[10px] text-ink-soft mt-0.5">
+                      {n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : "just now"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {noteError && <p className="text-xs text-negative mb-2">{noteError}</p>}
+            <textarea
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="Add a note…"
+              rows={2}
+              className="w-full rounded-lg border border-cream-line bg-cream/50 px-3 py-2 text-sm outline-none focus:border-accent resize-none"
+            />
+            <button
+              onClick={handleAddNote}
+              disabled={saving || !noteText.trim()}
+              className="mt-2 text-xs font-medium px-3 py-1.5 rounded-full bg-navy text-white disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Add note"}
+            </button>
+          </div>
+
+          {(f.dataSource || f.lastScraped) && (
+            <p className="text-[10px] text-ink-soft">
+              Source: {f.dataSource || "—"}
+              {f.lastScraped ? ` · last checked ${f.lastScraped}` : ""}
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
