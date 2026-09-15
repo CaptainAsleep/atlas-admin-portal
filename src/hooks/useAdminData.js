@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { collection, collectionGroup, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { addDoc, collection, collectionGroup, doc, getDoc, getDocs, orderBy, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
 // Atlas Standard has no subscription tiers anymore (removed 2026-09) —
@@ -54,6 +54,28 @@ export async function rejectFieldClaim(fieldId) {
     claimPending: false,
     claimRequestedBy: null,
     claimRequestedByEmail: null,
+  });
+}
+
+// Michael's own free-form tracking notes about a field (follow-up calls,
+// claim history, anything worth remembering) — separate from the
+// per-field statusNotes captured during the seed-data pass, and admin-
+// only per firestore.rules (fields/{fieldId}/adminNotes/{noteId}), unlike
+// private/{docId} above which the field's own owner can also read/write.
+// Fetched on demand (when the field detail modal opens), not eagerly with
+// the rest of the dashboard — no reason to pay for a read per field on
+// every refresh for a feature only used occasionally.
+export async function getFieldNotes(fieldId) {
+  const snap = await getDocs(
+    query(collection(db, "fields", fieldId, "adminNotes"), orderBy("createdAt", "desc"))
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function addFieldNote(fieldId, text) {
+  await addDoc(collection(db, "fields", fieldId, "adminNotes"), {
+    text,
+    createdAt: serverTimestamp(),
   });
 }
 
@@ -281,6 +303,7 @@ export function summarize(data) {
       claimRequestedBy: f.claimRequestedBy || null,
       claimRequestedByEmail: f.claimRequestedByEmail || null,
       ownerName: owner?.name || owner?.email || (f.claimed ? "(owner record missing)" : "—"),
+      ownerEmail: owner?.email || null,
       eventsCount: fieldEvents.length,
       paidBookingsCount: fieldPaidBookings.length,
       revenueCents,
@@ -292,6 +315,23 @@ export function summarize(data) {
       // existed) — absence has never meant "inactive" in this schema.
       status: f.status || "active",
       statusNotes: f.notes || null,
+      // Everything below already exists on the raw fields/{id} doc (see
+      // scripts/seed-data.mjs in atlas-players-app) but was never surfaced
+      // anywhere in the admin portal until the field detail modal needed
+      // it — carried straight through, no computation.
+      city: f.city || null,
+      address: f.address || null,
+      phone: f.phone || null,
+      website: f.website || null,
+      indoorOutdoor: f.indoorOutdoor || null,
+      about: f.about || null,
+      facebook: f.facebook || null,
+      instagram: f.instagram || null,
+      discord: f.discord || null,
+      youtube: f.youtube || null,
+      ownerEmailDomain: f.ownerEmailDomain || null,
+      dataSource: f.dataSource || null,
+      lastScraped: f.lastScraped || null,
     };
   });
 
