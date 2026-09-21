@@ -2,10 +2,10 @@ import { useState, useEffect } from "react";
 import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
   CalendarDays, Ticket, DollarSign, AlertCircle, ExternalLink, Package, Search, Wallet, Check,
-  UserCircle2, Shield, Award, Bookmark, X,
+  UserCircle2, Shield, Award, Bookmark, X, Pencil,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
-import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote } from "./hooks/useAdminData";
+import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote, updateFieldInfo } from "./hooks/useAdminData";
 
 function money(cents) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -112,18 +112,61 @@ function InfoRow({ label, value }) {
   );
 }
 
+function EditField({ label, value, onChange }) {
+  return (
+    <div>
+      <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-1">{label}</div>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-lg border border-cream-line bg-cream/50 px-2 py-1 text-sm outline-none focus:border-accent"
+      />
+    </div>
+  );
+}
+
+// The subset of a field's public-listing info Michael can fill in or
+// correct by hand from the modal — mirrors what the seed-data scrape
+// populates on the raw fields/{id} doc (see useAdminData.js's fieldRows
+// mapping) but deliberately excludes anything derived/computed (claim
+// state, revenue, fee model, etc.) or owned by another flow (status is
+// set via the seed script, welcome-package address has its own section).
+const EDITABLE_FIELDS = [
+  { key: "address", label: "Address" },
+  { key: "city", label: "City" },
+  { key: "phone", label: "Phone" },
+  { key: "website", label: "Website" },
+  { key: "indoorOutdoor", label: "Type (indoor/outdoor)" },
+  { key: "facebook", label: "Facebook" },
+  { key: "instagram", label: "Instagram" },
+  { key: "discord", label: "Discord" },
+  { key: "youtube", label: "YouTube" },
+  { key: "about", label: "About" },
+];
+
+function buildFieldForm(f) {
+  const form = {};
+  for (const { key } of EDITABLE_FIELDS) form[key] = f[key] || "";
+  return form;
+}
+
 // Click a field's name in the Fields table to open this. Prefilled with
 // whatever's already on hand from fieldRows (see useAdminData.js) — no
 // extra Firestore reads for any of that. Notes are the one thing genuinely
 // fetched here, on open, since they're the one part of this that can
 // actually grow over time and isn't worth loading for every field on
 // every dashboard refresh.
-function FieldModal({ field: f, onClose }) {
+function FieldModal({ field: f, onClose, onSaved }) {
   const [notes, setNotes] = useState([]);
   const [notesLoading, setNotesLoading] = useState(true);
   const [noteText, setNoteText] = useState("");
   const [saving, setSaving] = useState(false);
   const [noteError, setNoteError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(() => buildFieldForm(f));
+  const [savingInfo, setSavingInfo] = useState(false);
+  const [infoError, setInfoError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -161,6 +204,37 @@ function FieldModal({ field: f, onClose }) {
     }
   }
 
+  function startEditing() {
+    setForm(buildFieldForm(f));
+    setInfoError("");
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    setEditing(false);
+    setInfoError("");
+  }
+
+  async function handleSaveInfo() {
+    setSavingInfo(true);
+    setInfoError("");
+    try {
+      const updates = {};
+      for (const { key } of EDITABLE_FIELDS) {
+        const v = form[key].trim();
+        updates[key] = v === "" ? null : v;
+      }
+      await updateFieldInfo(f.id, updates);
+      onSaved?.(updates);
+      setEditing(false);
+    } catch (err) {
+      console.error("Couldn't save field details:", err);
+      setInfoError("Couldn't save — try again.");
+    } finally {
+      setSavingInfo(false);
+    }
+  }
+
   const a = f.shippingAddress;
   const hasAddress = a && (a.line1 || a.city);
 
@@ -172,28 +246,76 @@ function FieldModal({ field: f, onClose }) {
       >
         <div className="sticky top-0 bg-white border-b border-cream-line px-6 py-4 flex items-center justify-between z-10 rounded-t-2xl">
           <h2 className="font-display font-bold text-navy text-lg">{f.name}</h2>
-          <button onClick={onClose} className="text-ink-soft hover:text-navy" title="Close">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-3">
+            {editing ? (
+              <>
+                <button
+                  onClick={cancelEditing}
+                  disabled={savingInfo}
+                  className="text-xs font-medium text-ink-soft hover:text-navy disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveInfo}
+                  disabled={savingInfo}
+                  className="text-xs font-medium px-3 py-1.5 rounded-full bg-navy text-white disabled:opacity-50"
+                >
+                  {savingInfo ? "Saving…" : "Save"}
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={startEditing}
+                className="text-xs font-medium text-accent hover:underline flex items-center gap-1"
+              >
+                <Pencil size={12} /> Edit details
+              </button>
+            )}
+            <button onClick={onClose} className="text-ink-soft hover:text-navy" title="Close">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="p-6 space-y-6">
+          {infoError && (
+            <div className="flex items-center gap-2 bg-negative/10 text-negative border border-negative/30 rounded-lg px-3 py-2 text-xs">
+              <AlertCircle size={14} /> {infoError}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-            <InfoRow label="Address" value={[f.address, f.city].filter(Boolean).join(", ") || "—"} />
-            <InfoRow label="Phone" value={f.phone || "—"} />
-            <InfoRow
-              label="Website"
-              value={
-                f.website ? (
-                  <a href={f.website} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline break-all">
-                    {f.website}
-                  </a>
-                ) : (
-                  "—"
-                )
-              }
-            />
-            <InfoRow label="Type" value={f.indoorOutdoor || "—"} />
+            {editing ? (
+              <>
+                <EditField label="Address" value={form.address} onChange={(v) => setForm((p) => ({ ...p, address: v }))} />
+                <EditField label="City" value={form.city} onChange={(v) => setForm((p) => ({ ...p, city: v }))} />
+                <EditField label="Phone" value={form.phone} onChange={(v) => setForm((p) => ({ ...p, phone: v }))} />
+                <EditField label="Website" value={form.website} onChange={(v) => setForm((p) => ({ ...p, website: v }))} />
+                <EditField
+                  label="Type (indoor/outdoor)"
+                  value={form.indoorOutdoor}
+                  onChange={(v) => setForm((p) => ({ ...p, indoorOutdoor: v }))}
+                />
+              </>
+            ) : (
+              <>
+                <InfoRow label="Address" value={[f.address, f.city].filter(Boolean).join(", ") || "—"} />
+                <InfoRow label="Phone" value={f.phone || "—"} />
+                <InfoRow
+                  label="Website"
+                  value={
+                    f.website ? (
+                      <a href={f.website} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline break-all">
+                        {f.website}
+                      </a>
+                    ) : (
+                      "—"
+                    )
+                  }
+                />
+                <InfoRow label="Type" value={f.indoorOutdoor || "—"} />
+              </>
+            )}
             <InfoRow
               label="Field status"
               value={
@@ -221,39 +343,63 @@ function FieldModal({ field: f, onClose }) {
             <InfoRow label="Revenue (Atlas fee)" value={money(f.revenueCents)} />
           </div>
 
-          {(f.facebook || f.instagram || f.discord || f.youtube) && (
+          {editing ? (
             <div>
               <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-1.5">Social</div>
-              <div className="flex flex-wrap gap-3 text-sm">
-                {f.facebook && (
-                  <a href={f.facebook} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
-                    Facebook
-                  </a>
-                )}
-                {f.instagram && (
-                  <a href={f.instagram} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
-                    Instagram
-                  </a>
-                )}
-                {f.discord && (
-                  <a href={f.discord} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
-                    Discord
-                  </a>
-                )}
-                {f.youtube && (
-                  <a href={f.youtube} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
-                    YouTube
-                  </a>
-                )}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                <EditField label="Facebook" value={form.facebook} onChange={(v) => setForm((p) => ({ ...p, facebook: v }))} />
+                <EditField label="Instagram" value={form.instagram} onChange={(v) => setForm((p) => ({ ...p, instagram: v }))} />
+                <EditField label="Discord" value={form.discord} onChange={(v) => setForm((p) => ({ ...p, discord: v }))} />
+                <EditField label="YouTube" value={form.youtube} onChange={(v) => setForm((p) => ({ ...p, youtube: v }))} />
               </div>
             </div>
+          ) : (
+            (f.facebook || f.instagram || f.discord || f.youtube) && (
+              <div>
+                <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-1.5">Social</div>
+                <div className="flex flex-wrap gap-3 text-sm">
+                  {f.facebook && (
+                    <a href={f.facebook} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                      Facebook
+                    </a>
+                  )}
+                  {f.instagram && (
+                    <a href={f.instagram} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                      Instagram
+                    </a>
+                  )}
+                  {f.discord && (
+                    <a href={f.discord} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                      Discord
+                    </a>
+                  )}
+                  {f.youtube && (
+                    <a href={f.youtube} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                      YouTube
+                    </a>
+                  )}
+                </div>
+              </div>
+            )
           )}
 
-          {f.about && (
+          {editing ? (
             <div>
               <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-1.5">About</div>
-              <p className="text-sm text-ink">{f.about}</p>
+              <textarea
+                value={form.about}
+                onChange={(e) => setForm((p) => ({ ...p, about: e.target.value }))}
+                rows={3}
+                className="w-full rounded-lg border border-cream-line bg-cream/50 px-3 py-2 text-sm outline-none focus:border-accent resize-none"
+              />
             </div>
+          ) : (
+            f.about && (
+              <div>
+                <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-1.5">About</div>
+                <p className="text-sm text-ink">{f.about}</p>
+              </div>
+            )
           )}
 
           <div>
@@ -759,7 +905,15 @@ function Dashboard({ email, onSignOut }) {
         )}
       </main>
       {selectedField && (
-        <FieldModal field={selectedField} onClose={() => setSelectedField(null)} />
+        <FieldModal
+          key={selectedField.id}
+          field={selectedField}
+          onClose={() => setSelectedField(null)}
+          onSaved={(updates) => {
+            setSelectedField((prev) => (prev ? { ...prev, ...updates } : prev));
+            reload();
+          }}
+        />
       )}
     </div>
   );

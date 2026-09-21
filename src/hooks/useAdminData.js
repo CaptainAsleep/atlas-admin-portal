@@ -57,6 +57,16 @@ export async function rejectFieldClaim(fieldId) {
   });
 }
 
+// Manually filling in / correcting a field's public listing info (address,
+// phone, website, socials, indoor/outdoor, the about blurb) — for when
+// Michael has better info than whatever the original scrape found, or the
+// scrape found nothing at all. Takes only the editable subset from
+// FieldModal's edit form; an empty string is saved as null so a field can
+// be cleared, not just filled in.
+export async function updateFieldInfo(fieldId, updates) {
+  await updateDoc(doc(db, "fields", fieldId), updates);
+}
+
 // Michael's own free-form tracking notes about a field (follow-up calls,
 // claim history, anything worth remembering) — separate from the
 // per-field statusNotes captured during the seed-data pass, and admin-
