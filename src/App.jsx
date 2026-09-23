@@ -235,9 +235,6 @@ function FieldModal({ field: f, onClose, onSaved }) {
     }
   }
 
-  const a = f.shippingAddress;
-  const hasAddress = a && (a.line1 || a.city);
-
   return (
     <div className="fixed inset-0 z-30 bg-navy/60 flex items-center justify-center p-4" onClick={onClose}>
       <div
@@ -341,6 +338,18 @@ function FieldModal({ field: f, onClose, onSaved }) {
             <InfoRow label="Events" value={f.eventsCount} />
             <InfoRow label="Paid bookings" value={f.paidBookingsCount} />
             <InfoRow label="Revenue (Atlas fee)" value={money(f.revenueCents)} />
+            <InfoRow
+              label="Welcome package (cold mailer)"
+              value={
+                f.welcomePackageStatus?.sent
+                  ? `sent${
+                      f.welcomePackageStatus.sentAt?.toDate
+                        ? ` ${f.welcomePackageStatus.sentAt.toDate().toLocaleDateString()}`
+                        : ""
+                    }`
+                  : "not sent yet"
+              }
+            />
           </div>
 
           {editing ? (
@@ -401,24 +410,6 @@ function FieldModal({ field: f, onClose, onSaved }) {
               </div>
             )
           )}
-
-          <div>
-            <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-1.5">Welcome package</div>
-            {hasAddress ? (
-              <p className="text-sm text-ink">
-                {a.recipientName ? `${a.recipientName} — ` : ""}
-                {a.line1}
-                {a.line2 ? `, ${a.line2}` : ""}, {[a.city, a.state, a.zip].filter(Boolean).join(", ")}
-                {a.sent && (
-                  <span className="ml-2 text-positive text-xs">
-                    ✓ sent{a.sentAt?.toDate ? ` ${a.sentAt.toDate().toLocaleDateString()}` : ""}
-                  </span>
-                )}
-              </p>
-            ) : (
-              <p className="text-sm text-ink-soft italic">not provided yet</p>
-            )}
-          </div>
 
           <div className="border-t border-cream-line pt-4">
             <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-2">Notes</div>
@@ -481,9 +472,16 @@ function Dashboard({ email, onSignOut }) {
   const fieldRows = (s?.fieldRows || []).filter((f) =>
     `${f.name} ${f.ownerName} ${f.status}`.toLowerCase().includes(fieldSearch.toLowerCase())
   );
-  const addressRows = (s?.fieldRows || [])
-    .filter((f) => f.claimed)
-    .filter((f) => `${f.name} ${f.ownerName}`.toLowerCase().includes(addressSearch.toLowerCase()));
+  // Welcome package targets — cold-mail candidates, not fulfillment.
+  // Unclaimed (that's the whole point: get them to sign up) and excludes
+  // closed/non-airsoft/relocated fields, same inactive-status list used
+  // for the Fields table's status labels.
+  const addressCandidates = (s?.fieldRows || []).filter(
+    (f) => !f.claimed && !Object.keys(FIELD_STATUS_LABELS).includes(f.status)
+  );
+  const addressRows = addressCandidates.filter((f) =>
+    `${f.name} ${f.city || ""} ${f.address || ""}`.toLowerCase().includes(addressSearch.toLowerCase())
+  );
 
   // Marking a welcome package "Sent" is the admin portal's one write path
   // (everything else here is read-only by design). No optimistic local
@@ -594,7 +592,7 @@ function Dashboard({ email, onSignOut }) {
           length. */}
       <nav className="sticky top-0 z-20 bg-cream/95 backdrop-blur shadow-sm px-6 py-2 flex items-center gap-4 text-sm">
         <a href="#fields" className="text-ink hover:text-accent">Fields</a>
-        <a href="#addresses" className="text-ink hover:text-accent">Welcome package addresses</a>
+        <a href="#addresses" className="text-ink hover:text-accent">Welcome package targets</a>
       </nav>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
@@ -802,7 +800,7 @@ function Dashboard({ email, onSignOut }) {
             <section id="addresses" className="bg-white rounded-2xl shadow-md p-5 mt-8 scroll-mt-16">
               <div className="flex items-center justify-between mb-1 gap-4 flex-wrap">
                 <h2 className="font-display font-bold text-navy flex items-center gap-2">
-                  <Package size={16} /> Welcome package addresses ({addressRows.length}{addressSearch ? ` of ${s.fieldRows.filter((f) => f.claimed).length}` : ""})
+                  <Package size={16} /> Welcome package targets ({addressRows.length}{addressSearch ? ` of ${addressCandidates.length}` : ""})
                 </h2>
                 <div className="relative">
                   <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-soft" />
@@ -810,15 +808,15 @@ function Dashboard({ email, onSignOut }) {
                     type="text"
                     value={addressSearch}
                     onChange={(e) => setAddressSearch(e.target.value)}
-                    placeholder="Search field or owner…"
+                    placeholder="Search field or city…"
                     className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-cream-line bg-cream/50 outline-none focus:border-accent w-56"
                   />
                 </div>
               </div>
               <p className="text-xs text-ink-soft mb-3">
-                Where to actually ship stickers, a tablet stand, etc. Private, owner-provided — separate from a
-                field's public listing address, since some fields have no one on-site to receive mail. Claimed
-                fields only; a blank row just means that owner hasn't filled theirs in yet.
+                Cold-mail candidates — fields that haven't signed up yet. Address is the
+                field's own public listing address (add or fix it from the field's detail modal above if
+                it's missing). Already-claimed fields and closed/non-airsoft ones are excluded automatically.
               </p>
               {sendError && (
                 <div className="mb-3 flex items-center gap-2 bg-negative/10 text-negative border border-negative/30 rounded-lg px-3 py-2 text-xs">
@@ -826,51 +824,40 @@ function Dashboard({ email, onSignOut }) {
                 </div>
               )}
               <div className="overflow-auto max-h-[28rem] border border-cream-dim rounded-lg">
-                <table className="w-full text-sm min-w-[640px]">
+                <table className="w-full text-sm min-w-[480px]">
                   <thead className="sticky top-0 bg-white shadow-sm">
                     <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
                       <th className="pb-2 pt-2 pl-2 font-medium">Field</th>
-                      <th className="pb-2 pt-2 font-medium">Owner</th>
-                      <th className="pb-2 pt-2 font-medium">Recipient</th>
                       <th className="pb-2 pt-2 font-medium">Address</th>
-                      <th className="pb-2 pt-2 font-medium">Notes</th>
                       <th className="pb-2 pt-2 pr-2 font-medium text-right">Sent</th>
                     </tr>
                   </thead>
                   <tbody>
                     {addressRows.map((f) => {
-                      const a = f.shippingAddress;
-                      const hasAddress = a && (a.line1 || a.city);
+                      const wp = f.welcomePackageStatus;
+                      const mailingAddress = [f.address, f.city].filter(Boolean).join(", ");
                       return (
                         <tr key={f.id} className="border-t border-cream-dim align-top">
                           <td className="py-2 pl-2 text-navy font-medium">{f.name}</td>
-                          <td className="py-2 text-ink">{f.ownerName}</td>
-                          <td className="py-2 text-ink">{a?.recipientName || (hasAddress ? "—" : "")}</td>
                           <td className="py-2 text-ink">
-                            {hasAddress ? (
-                              <>
-                                {a.line1}
-                                {a.line2 ? `, ${a.line2}` : ""}
-                                <br />
-                                {[a.city, a.state, a.zip].filter(Boolean).join(", ")}
-                              </>
-                            ) : (
-                              <span className="text-ink-soft italic">not provided yet</span>
+                            {mailingAddress || (
+                              <span className="text-ink-soft italic">
+                                no address on file — add one from the field's detail modal
+                              </span>
                             )}
                           </td>
-                          <td className="py-2 text-ink-soft">{a?.notes || ""}</td>
                           <td className="py-2 pr-2 text-right">
                             <button
-                              onClick={() => handleToggleSent(f.id, !a?.sent)}
+                              onClick={() => handleToggleSent(f.id, !wp?.sent)}
                               disabled={sendingIds.has(f.id)}
                               className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 ${
-                                a?.sent
+                                wp?.sent
                                   ? "bg-positive/10 text-positive border-positive/30 hover:bg-positive/20"
                                   : "bg-cream text-ink-soft border-cream-line hover:border-accent hover:text-accent"
                               }`}
-                              title={a?.sent ? "Click to unmark" : "Mark this field's welcome package as sent"}
+                              title={wp?.sent ? "Click to unmark" : "Mark this field's welcome package as sent"}
                             >
-                              {a?.sent ? (
+                              {wp?.sent ? (
                                 <>
                                   <Check size={12} /> Sent
                                 </>
@@ -878,9 +865,9 @@ function Dashboard({ email, onSignOut }) {
                                 "Mark sent"
                               )}
                             </button>
-                            {a?.sent && a?.sentAt?.toDate && (
+                            {wp?.sent && wp?.sentAt?.toDate && (
                               <div className="text-[10px] text-ink-soft mt-1">
-                                {a.sentAt.toDate().toLocaleDateString()}
+                                {wp.sentAt.toDate().toLocaleDateString()}
                               </div>
                             )}
                           </td>
@@ -888,7 +875,7 @@ function Dashboard({ email, onSignOut }) {
                       );
                     })}
                     {addressRows.length === 0 && (
-                      <tr><td colSpan={6} className="py-4 text-center text-ink-soft">No matches.</td></tr>
+                      <tr><td colSpan={3} className="py-4 text-center text-ink-soft">No matches.</td></tr>
                     )}
                   </tbody>
                 </table>

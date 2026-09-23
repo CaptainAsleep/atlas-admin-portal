@@ -178,21 +178,26 @@ export function useAdminData() {
       const teamsTotal = teamsSnap ? teamsSnap.size : null;
       const patchesTotal = patchesSnap ? patchesSnap.size : null;
 
-      // Private, field-scoped welcome-package shipping addresses — only
-      // fetched for claimed fields (an unclaimed field has no owner to
-      // have filled one in). Only readable here because the admin uid is
-      // explicitly allowed in firestore.rules (fields/{id}/private/{doc}),
-      // unlike the fully public fields/owners/events/bookings reads above.
-      const claimedFields = fields.filter((f) => f.claimed === true);
+      // Welcome-package send status. Through 2026-09 this was fulfillment
+      // mail (stickers, tablet stand) shipped to a field's owner-provided
+      // address AFTER they signed up, so it was only fetched for claimed
+      // fields. As of 2026-09-23 the welcome package doubles as a cold
+      // mailer sent to UNCLAIMED fields to get them to sign up in the
+      // first place, so this is now fetched for every field. The doc
+      // still lives at private/shipping (reusing the existing isAdmin()
+      // grant there rather than standing up new rules) and can still hold
+      // an owner-provided address from the old flow, but only sent/sentAt
+      // are read here now — the cold-mailer target address comes from the
+      // field's own public address/city instead (see fieldRows below).
       const shippingSnaps = await Promise.all(
-        claimedFields.map((f) => getDoc(doc(db, "fields", f.id, "private", "shipping")).catch(() => null))
+        fields.map((f) => getDoc(doc(db, "fields", f.id, "private", "shipping")).catch(() => null))
       );
-      const shippingByFieldId = {};
-      claimedFields.forEach((f, i) => {
+      const welcomePackageByFieldId = {};
+      fields.forEach((f, i) => {
         const snap = shippingSnaps[i];
-        if (snap && snap.exists()) shippingByFieldId[f.id] = snap.data();
+        if (snap && snap.exists()) welcomePackageByFieldId[f.id] = snap.data();
       });
-      fields = fields.map((f) => ({ ...f, shippingAddress: shippingByFieldId[f.id] || null }));
+      fields = fields.map((f) => ({ ...f, welcomePackageStatus: welcomePackageByFieldId[f.id] || null }));
 
       const bookingsByEvent = await Promise.all(
         events.map((e) => getDocs(collection(db, "events", e.id, "bookings")))
@@ -319,7 +324,7 @@ export function summarize(data) {
       revenueCents,
       feeModel: owner?.feeModel || null,
       payoutsEnabled: owner?.payoutsEnabled === true,
-      shippingAddress: f.shippingAddress || null,
+      welcomePackageStatus: f.welcomePackageStatus || null,
       // "active" covers both an explicit status: "active" and a field with
       // no status set at all (older seed rows from before this field
       // existed) — absence has never meant "inactive" in this schema.
