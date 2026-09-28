@@ -5,7 +5,7 @@ import {
   UserCircle2, Shield, Award, Bookmark, X, Pencil,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
-import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote, updateFieldInfo } from "./hooks/useAdminData";
+import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote, updateFieldInfo, grantPatchToPlayer } from "./hooks/useAdminData";
 
 function money(cents) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -458,6 +458,131 @@ function FieldModal({ field: f, onClose, onSaved }) {
   );
 }
 
+// Click a player's callsign in the Players table to open this. The catalog
+// (achievementCatalog) is passed down rather than fetched here — it's the
+// same static list for every player, already loaded once at dashboard load
+// (see useAdminData.js), no reason to refetch it per player. Granting is
+// optimistic + backed by a background reload (onGranted, implemented in
+// Dashboard) rather than a dedicated re-fetch-this-player call, since a
+// full reload already re-derives patches for everyone in one pass.
+function PlayerModal({ player: p, achievementCatalog, onClose, onGranted }) {
+  const [grantingId, setGrantingId] = useState(null);
+  const [grantError, setGrantError] = useState("");
+
+  const ownedIds = new Set(p.patches.map((patch) => patch.id));
+
+  async function handleGrant(patch) {
+    setGrantingId(patch.id);
+    setGrantError("");
+    try {
+      const result = await grantPatchToPlayer(p.uid, patch);
+      onGranted(patch, result);
+    } catch (err) {
+      console.error("Couldn't grant patch:", err);
+      setGrantError("Couldn't grant — try again.");
+    } finally {
+      setGrantingId(null);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-30 bg-navy/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-white border-b border-cream-line px-6 py-4 flex items-center justify-between z-10 rounded-t-2xl">
+          <div className="flex items-center gap-3">
+            {p.avatarUrl ? (
+              <img src={p.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
+            ) : (
+              <UserCircle2 size={28} className="text-ink-soft" />
+            )}
+            <h2 className="font-display font-bold text-navy text-lg">{p.callsign}</h2>
+          </div>
+          <button onClick={onClose} className="text-ink-soft hover:text-navy" title="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <InfoRow label="Email" value={p.email || "—"} />
+            <InfoRow label="Team" value={p.teamName || "—"} />
+            <InfoRow
+              label="Joined"
+              value={p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString() : "—"}
+            />
+            <InfoRow label="Verified" value={p.verified ? "yes" : "no"} />
+            <InfoRow label="Referrals" value={p.referralCount} />
+            <InfoRow label="Patches" value={p.patchCount} />
+          </div>
+
+          <div>
+            <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-2">
+              Owned patches
+            </div>
+            {p.patches.length === 0 ? (
+              <p className="text-sm text-ink-soft italic">No patches yet.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {p.patches.map((patch) => (
+                  <div key={patch.id} className="flex items-center gap-2 text-sm">
+                    {patch.imageUrl ? (
+                      <img src={patch.imageUrl} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                    ) : (
+                      <Award size={20} className="text-ink-soft flex-shrink-0" />
+                    )}
+                    <div>
+                      <div className="text-ink">{patch.name}</div>
+                      <div className="text-[10px] text-ink-soft">
+                        {patch.addedAt?.toDate ? patch.addedAt.toDate().toLocaleDateString() : ""}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-cream-line pt-4">
+            <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-2">
+              Grant a patch
+            </div>
+            {grantError && <p className="text-xs text-negative mb-2">{grantError}</p>}
+            <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+              {achievementCatalog.map((patch) => {
+                const owned = ownedIds.has(patch.id);
+                return (
+                  <div
+                    key={patch.id}
+                    className="flex items-center justify-between gap-2 text-sm border border-cream-line rounded-lg px-2 py-1.5"
+                  >
+                    <span className="text-ink truncate" title={patch.details || patch.name}>
+                      {patch.name}
+                    </span>
+                    <button
+                      onClick={() => handleGrant(patch)}
+                      disabled={owned || grantingId === patch.id}
+                      className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 ${
+                        owned
+                          ? "bg-positive/10 text-positive border-positive/30"
+                          : "bg-cream text-ink-soft border-cream-line hover:border-accent hover:text-accent"
+                      }`}
+                    >
+                      {owned ? "Owned" : grantingId === patch.id ? "Granting…" : "Grant"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ email, onSignOut }) {
   const { data, loading, error, reload } = useAdminData();
   const s = summarize(data);
@@ -469,6 +594,8 @@ function Dashboard({ email, onSignOut }) {
   const [fieldSearch, setFieldSearch] = useState("");
   const [addressSearch, setAddressSearch] = useState("");
   const [selectedField, setSelectedField] = useState(null);
+  const [playerSearch, setPlayerSearch] = useState("");
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
   const fieldRows = (s?.fieldRows || []).filter((f) =>
     `${f.name} ${f.ownerName} ${f.status}`.toLowerCase().includes(fieldSearch.toLowerCase())
   );
@@ -481,6 +608,10 @@ function Dashboard({ email, onSignOut }) {
   );
   const addressRows = addressCandidates.filter((f) =>
     `${f.name} ${f.city || ""} ${f.address || ""}`.toLowerCase().includes(addressSearch.toLowerCase())
+  );
+
+  const playerRows = (s?.playerRows || []).filter((p) =>
+    `${p.callsign} ${p.email || ""} ${p.teamName || ""}`.toLowerCase().includes(playerSearch.toLowerCase())
   );
 
   // Marking a welcome package "Sent" is the admin portal's one write path
@@ -593,6 +724,7 @@ function Dashboard({ email, onSignOut }) {
       <nav className="sticky top-0 z-20 bg-cream/95 backdrop-blur shadow-sm px-6 py-2 flex items-center gap-4 text-sm">
         <a href="#fields" className="text-ink hover:text-accent">Fields</a>
         <a href="#addresses" className="text-ink hover:text-accent">Welcome package targets</a>
+        <a href="#players" className="text-ink hover:text-accent">Players</a>
       </nav>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
@@ -882,6 +1014,65 @@ function Dashboard({ email, onSignOut }) {
               </div>
             </section>
 
+            <section id="players" className="bg-white rounded-2xl shadow-md p-5 mt-8 scroll-mt-16">
+              <div className="flex items-center justify-between mb-1 gap-4 flex-wrap">
+                <h2 className="font-display font-bold text-navy flex items-center gap-2">
+                  <Users size={16} /> Players ({playerRows.length}{playerSearch ? ` of ${s.playerRows.length}` : ""})
+                </h2>
+                <div className="relative">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-soft" />
+                  <input
+                    type="text"
+                    value={playerSearch}
+                    onChange={(e) => setPlayerSearch(e.target.value)}
+                    placeholder="Search callsign, email, or team…"
+                    className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-cream-line bg-cream/50 outline-none focus:border-accent w-56"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-ink-soft mb-3">
+                Click a callsign for full account details and to grant a catalog patch by hand — the ones
+                the app can't auto-grant yet (Bug Hunter, Ambassador, Secret Agent, etc.).
+              </p>
+              <div className="overflow-auto max-h-[28rem] border border-cream-dim rounded-lg">
+                <table className="w-full text-sm min-w-[640px]">
+                  <thead className="sticky top-0 bg-white shadow-sm">
+                    <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
+                      <th className="pb-2 pt-2 pl-2 font-medium">Callsign</th>
+                      <th className="pb-2 pt-2 font-medium">Email</th>
+                      <th className="pb-2 pt-2 font-medium">Team</th>
+                      <th className="pb-2 pt-2 font-medium text-right">Patches</th>
+                      <th className="pb-2 pt-2 pr-2 font-medium text-right">Joined</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {playerRows.map((p) => (
+                      <tr key={p.uid} className="border-t border-cream-dim">
+                        <td className="py-2 pl-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPlayer(p)}
+                            className="text-navy font-medium hover:underline text-left"
+                          >
+                            {p.callsign}
+                          </button>
+                        </td>
+                        <td className="py-2 text-ink">{p.email || "—"}</td>
+                        <td className="py-2 text-ink">{p.teamName || "—"}</td>
+                        <td className="py-2 text-ink text-right">{p.patchCount}</td>
+                        <td className="py-2 pr-2 text-ink-soft text-right">
+                          {p.createdAt?.toDate ? p.createdAt.toDate().toLocaleDateString() : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                    {playerRows.length === 0 && (
+                      <tr><td colSpan={5} className="py-4 text-center text-ink-soft">No matches.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
             <p className="text-xs text-ink-soft mt-6">
               Last loaded {data.fetchedAt.toLocaleTimeString()}. "Total Atlas Revenue" is Atlas's own cut
               (Atlas Standard's platform fee — 3.5% + $1.30, capped at $5.00), not the full amount players
@@ -898,6 +1089,30 @@ function Dashboard({ email, onSignOut }) {
           onClose={() => setSelectedField(null)}
           onSaved={(updates) => {
             setSelectedField((prev) => (prev ? { ...prev, ...updates } : prev));
+            reload();
+          }}
+        />
+      )}
+      {selectedPlayer && (
+        <PlayerModal
+          key={selectedPlayer.uid}
+          player={selectedPlayer}
+          achievementCatalog={data.achievementCatalog || []}
+          onClose={() => setSelectedPlayer(null)}
+          onGranted={(patch, result) => {
+            if (result.alreadyOwned) return;
+            setSelectedPlayer((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    patches: [
+                      { id: patch.id, name: patch.name, imageUrl: patch.imageUrl, details: patch.details || null, addedAt: null },
+                      ...prev.patches,
+                    ],
+                    patchCount: prev.patchCount + 1,
+                  }
+                : prev
+            );
             reload();
           }}
         />

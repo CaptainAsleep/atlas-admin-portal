@@ -89,6 +89,32 @@ export async function addFieldNote(fieldId, text) {
   });
 }
 
+// Grants a catalog patch (an achievementPatches entry) to a player from
+// the admin portal's Players section — for the ones the codebase's own
+// seed script already flags as needing "a human, not a rule" (trigger:
+// null: Bug Hunter, Ambassador, Secret Agent, etc.), instead of doing it
+// by hand through the Firebase console. Deliberately mirrors grantPatch
+// in atlas-players-app's src/hooks/usePatches.js exactly — same doc
+// shape, same read-before-write idempotency check — so a patch granted
+// from here is indistinguishable from one the player app granted itself,
+// and granting an already-owned catalog patch is a safe no-op rather than
+// a duplicate. patch.id is the catalog doc's own id (already the correct
+// slug), not re-derived from the name.
+export async function grantPatchToPlayer(uid, patch) {
+  const ref = doc(db, "users", uid, "patches", patch.id);
+  const existing = await getDoc(ref);
+  if (existing.exists()) return { alreadyOwned: true };
+  await setDoc(ref, {
+    name: patch.name,
+    imageUrl: patch.imageUrl,
+    details: patch.details || null,
+    addedAt: serverTimestamp(),
+    granted: true,
+    seen: false,
+  });
+  return { alreadyOwned: false };
+}
+
 // Inverts bookingFeeCents = min(round(entryPriceCents * 0.10), 300) given
 // only the total amountPaidCents — same formula as createBookingCheckout,
 // run backwards. Only needed as a fallback for bookings recorded before
@@ -150,7 +176,7 @@ export function useAdminData() {
       // all three of these, but that only matters once actually deployed).
       // null means "couldn't load," not "zero" — kept distinct from 0 all
       // the way to the UI rather than silently showing a wrong count.
-      const [playersSnap, teamsSnap, patchesSnap] = await Promise.all([
+      const [playersSnap, teamsSnap, patchesSnap, usersSnap, achievementSnap] = await Promise.all([
         // publicProfiles, not users — the admin uid has no read grant on
         // users/{uid} itself (each player's own private doc, self-access
         // only), but every account gets a publicProfiles/{uid} mirror at
@@ -173,10 +199,72 @@ export function useAdminData() {
           console.error("patches load failed:", err);
           return null;
         }),
+        // Full users/{uid} collection — only readable here because
+        // isAdmin() was added to that rule 2026-09-28, specifically so the
+        // admin portal's Players section can show an email address
+        // alongside each publicProfiles row (which deliberately never
+        // carries one). Nothing else on this doc is surfaced anywhere.
+        getDocs(collection(db, "users")).catch((err) => {
+          console.error("users load failed:", err);
+          return null;
+        }),
+        // The catalog of grantable patches (achievementPatches) — already
+        // public-read, no rules change needed. Feeds the Players section's
+        // "grant a patch" list.
+        getDocs(collection(db, "achievementPatches")).catch((err) => {
+          console.error("achievementPatches load failed:", err);
+          return null;
+        }),
       ]);
       const playersTotal = playersSnap ? playersSnap.size : null;
       const teamsTotal = teamsSnap ? teamsSnap.size : null;
       const patchesTotal = patchesSnap ? patchesSnap.size : null;
+
+      // Group each patch doc by the uid it belongs to (a collectionGroup
+      // result doesn't carry that directly — it's the second segment up
+      // from the doc's own ref) and pair each player up with their email,
+      // for the Players section below. Both are best-effort: a null snap
+      // (permissions hiccup, rules not yet deployed) just means every
+      // player shows no email / no patches rather than the section
+      // failing outright, same defensive shape as playersTotal etc. above.
+      const patchesByUid = {};
+      if (patchesSnap) {
+        patchesSnap.docs.forEach((d) => {
+          const uid = d.ref.parent.parent?.id;
+          if (!uid) return;
+          if (!patchesByUid[uid]) patchesByUid[uid] = [];
+          patchesByUid[uid].push({ id: d.id, ...d.data() });
+        });
+      }
+      const emailByUid = {};
+      if (usersSnap) {
+        usersSnap.docs.forEach((d) => {
+          emailByUid[d.id] = d.data().email || null;
+        });
+      }
+      const achievementCatalog = achievementSnap
+        ? achievementSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        : [];
+      const players = playersSnap
+        ? playersSnap.docs.map((d) => {
+            const p = d.data();
+            const patches = (patchesByUid[d.id] || []).sort(
+              (a, b) => (b.addedAt?.toMillis?.() || 0) - (a.addedAt?.toMillis?.() || 0)
+            );
+            return {
+              uid: d.id,
+              callsign: p.callsign || "Player",
+              avatarUrl: p.avatarUrl || null,
+              teamName: p.teamName || null,
+              verified: p.verified === true,
+              referralCount: p.referralCount || 0,
+              createdAt: p.createdAt || null,
+              email: emailByUid[d.id] || null,
+              patches,
+              patchCount: patches.length,
+            };
+          })
+        : [];
 
       // Welcome-package send status. Through 2026-09 this was fulfillment
       // mail (stickers, tablet stand) shipped to a field's owner-provided
@@ -207,7 +295,18 @@ export function useAdminData() {
         snap.docs.forEach((d) => bookings.push({ id: d.id, eventId: events[i].id, ...d.data() }));
       });
 
-      setData({ fields, owners, events, bookings, playersTotal, teamsTotal, patchesTotal, fetchedAt: new Date() });
+      setData({
+        fields,
+        owners,
+        events,
+        bookings,
+        playersTotal,
+        teamsTotal,
+        patchesTotal,
+        players,
+        achievementCatalog,
+        fetchedAt: new Date(),
+      });
     } catch (err) {
       console.error("Admin dashboard load failed:", err);
       setError(err);
@@ -226,7 +325,7 @@ export function useAdminData() {
 /** Turns the raw snapshot from useAdminData into the numbers the dashboard shows. */
 export function summarize(data) {
   if (!data) return null;
-  const { fields, owners, events, bookings, playersTotal, teamsTotal, patchesTotal } = data;
+  const { fields, owners, events, bookings, playersTotal, teamsTotal, patchesTotal, players } = data;
 
   // Same three statuses the player app now hides from Home/team-picker
   // listings as of the 2026-09-07/08 field data-quality pass (seed-data.mjs
@@ -377,5 +476,12 @@ export function summarize(data) {
     totalAtlasRevenueCents: bookingFeeRevenueCents,
     estimatedFeeCount,
     fieldRows: fieldRows.sort((a, b) => b.revenueCents - a.revenueCents),
+    // Newest signups first — matches the recency-first read Michael
+    // actually wants here (who just joined), unlike fieldRows above
+    // which sorts by "most revenue-relevant." Search on top of this in
+    // Dashboard handles specific lookups regardless of sort order.
+    playerRows: (players || []).slice().sort(
+      (a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)
+    ),
   };
 }
