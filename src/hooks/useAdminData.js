@@ -115,6 +115,18 @@ export async function grantPatchToPlayer(uid, patch) {
   return { alreadyOwned: false };
 }
 
+// Sets an owner's fee model directly from the admin portal — feeModel is
+// self-serve-locked once an owner sets it themselves (see firestore.rules
+// on owners/{ownerId}: no further owner-client write may ever touch it
+// again), so a real change was already a rare, manually-handled case
+// (previously Firebase console/Discord). This is that same rare case with
+// a real UI instead. Firestore rules enforce the "only this key" scoping
+// server-side too — this function itself has no special privilege beyond
+// what isAdmin() already grants there.
+export async function updateOwnerFeeModel(ownerId, feeModel) {
+  await updateDoc(doc(db, "owners", ownerId), { feeModel });
+}
+
 // Inverts bookingFeeCents = min(round(entryPriceCents * 0.10), 300) given
 // only the total amountPaidCents — same formula as createBookingCheckout,
 // run backwards. Only needed as a fallback for bookings recorded before
@@ -418,6 +430,11 @@ export function summarize(data) {
       claimRequestedByEmail: f.claimRequestedByEmail || null,
       ownerName: owner?.name || owner?.email || (f.claimed ? "(owner record missing)" : "—"),
       ownerEmail: owner?.email || null,
+      // Needed to write feeModel back onto the right owner doc — feeModel
+      // lives on owners/{ownerId}, not the field itself, so the field
+      // detail modal's fee-model control needs this even though nothing
+      // else in fieldRows did.
+      ownerId: f.ownerId || null,
       eventsCount: fieldEvents.length,
       paidBookingsCount: fieldPaidBookings.length,
       revenueCents,

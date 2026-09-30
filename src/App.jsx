@@ -5,7 +5,7 @@ import {
   UserCircle2, Shield, Award, Bookmark, X, Pencil,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
-import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote, updateFieldInfo, grantPatchToPlayer } from "./hooks/useAdminData";
+import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote, updateFieldInfo, grantPatchToPlayer, updateOwnerFeeModel } from "./hooks/useAdminData";
 
 function money(cents) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -167,6 +167,8 @@ function FieldModal({ field: f, onClose, onSaved }) {
   const [form, setForm] = useState(() => buildFieldForm(f));
   const [savingInfo, setSavingInfo] = useState(false);
   const [infoError, setInfoError] = useState("");
+  const [feeModelSaving, setFeeModelSaving] = useState(false);
+  const [feeModelError, setFeeModelError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -232,6 +234,25 @@ function FieldModal({ field: f, onClose, onSaved }) {
       setInfoError("Couldn't save — try again.");
     } finally {
       setSavingInfo(false);
+    }
+  }
+
+  // feeModel lives on the OWNER doc (owners/{ownerId}), not this field —
+  // f.ownerId is what makes that write possible (added to fieldRows
+  // alongside this feature). Saves immediately on selection, no separate
+  // edit/save step — it's a single two-way choice, not a form.
+  async function handleFeeModelChange(newValue) {
+    if (!newValue || newValue === f.feeModel || !f.ownerId) return;
+    setFeeModelSaving(true);
+    setFeeModelError("");
+    try {
+      await updateOwnerFeeModel(f.ownerId, newValue);
+      onSaved?.({ feeModel: newValue });
+    } catch (err) {
+      console.error("Couldn't update fee model:", err);
+      setFeeModelError("Couldn't save — try again.");
+    } finally {
+      setFeeModelSaving(false);
     }
   }
 
@@ -332,7 +353,28 @@ function FieldModal({ field: f, onClose, onSaved }) {
             <InfoRow label="Owner email" value={f.ownerEmail || "—"} />
             <InfoRow
               label="Fee model"
-              value={f.feeModel ? FEE_MODEL_LABELS[f.feeModel] || f.feeModel : "not chosen yet"}
+              value={
+                f.ownerId ? (
+                  <>
+                    <select
+                      value={f.feeModel || ""}
+                      onChange={(e) => handleFeeModelChange(e.target.value)}
+                      disabled={feeModelSaving}
+                      className="text-sm rounded-lg border border-cream-line bg-cream/50 px-2 py-1 outline-none focus:border-accent disabled:opacity-50"
+                    >
+                      <option value="" disabled>
+                        Choose…
+                      </option>
+                      <option value="pass_to_player">{FEE_MODEL_LABELS.pass_to_player}</option>
+                      <option value="absorb">{FEE_MODEL_LABELS.absorb}</option>
+                    </select>
+                    {feeModelSaving && <span className="ml-2 text-xs text-ink-soft">Saving…</span>}
+                    {feeModelError && <div className="text-xs text-negative mt-1">{feeModelError}</div>}
+                  </>
+                ) : (
+                  "not chosen yet"
+                )
+              }
             />
             <InfoRow label="Payouts enabled" value={f.payoutsEnabled ? "yes" : "no"} />
             <InfoRow label="Events" value={f.eventsCount} />
