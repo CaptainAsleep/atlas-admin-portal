@@ -466,6 +466,64 @@ export function summarize(data) {
     };
   });
 
+  // Player email by uid, built from the already-fetched `players` list
+  // (itself already paired with email via the users/{uid} fetch in
+  // useAdminData — see the comment there) rather than a new lookup.
+  const emailByUid = Object.fromEntries((players || []).map((p) => [p.uid, p.email || null]));
+
+  // One row per booking, across every event — `bookings` already holds
+  // every events/{eventId}/bookings/{uid} doc (see bookingsByEvent in
+  // useAdminData above), so this is pure join/shaping, no new reads.
+  // Deliberately NOT filtered to paidBookings — free bookings belong in
+  // this table too.
+  const bookingRows = bookings.map((b) => {
+    const event = events.find((e) => e.id === b.eventId) || null;
+    const field = fields.find((f) => f.id === b.fieldId) || null;
+    const minors = Array.isArray(b.attendees) ? b.attendees.filter((a) => a?.kind === "minor") : [];
+    // Display-only reference, never stored in Firestore — see
+    // atlas-status.md. A paid booking's code is traceable to the real
+    // Stripe Checkout Session in the Stripe dashboard; a free booking
+    // (no Stripe session at all) falls back to a short hash of the
+    // event/uid pair, just enough to tell two rows apart at a glance.
+    const bookingRef = b.stripeCheckoutSessionId
+      ? b.stripeCheckoutSessionId.slice(-8).toUpperCase()
+      : `${(b.eventId || "").slice(-4)}${(b.uid || "").slice(-4)}`.toUpperCase();
+    // "not_tracked" covers every booking made before the Cloud Functions
+    // change that started writing these two fields — deliberately never
+    // shown as "failed" just because it predates tracking.
+    const emailStatus = b.confirmationEmailSentAt
+      ? "sent"
+      : b.confirmationEmailError
+      ? "failed"
+      : "not_tracked";
+    return {
+      id: `${b.eventId}_${b.uid}`,
+      eventId: b.eventId,
+      uid: b.uid,
+      callsign: b.callsign || "Player",
+      avatarUrl: b.avatarUrl || null,
+      email: emailByUid[b.uid] || null,
+      fieldId: b.fieldId || null,
+      fieldName: field?.name || field?.id || "—",
+      eventTitle: event?.title || "—",
+      eventDate: event?.date || null,
+      bookedAt: b.bookedAt || null,
+      paid: b.paid === true,
+      amountPaidCents: typeof b.amountPaidCents === "number" ? b.amountPaidCents : null,
+      selectedChoiceLabel: b.selectedChoiceLabel || null,
+      selectedRentals: Array.isArray(b.selectedRentals) ? b.selectedRentals : [],
+      attendeeCount: b.attendeeCount || 1,
+      minorCallsigns: minors.map((m) => m.callsign || "Child"),
+      partyLabel: minors.length === 0
+        ? "Solo"
+        : `Party of ${1 + minors.length}`,
+      emailStatus,
+      confirmationEmailError: b.confirmationEmailError || null,
+      bookingRef,
+      stripeCheckoutSessionId: b.stripeCheckoutSessionId || null,
+    };
+  });
+
   return {
     fieldsTotal: activeFields.length,
     fieldsClaimed,
@@ -500,5 +558,12 @@ export function summarize(data) {
     playerRows: (players || []).slice().sort(
       (a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)
     ),
+    // Newest-first — "recent bookings" is the default read, search in
+    // Dashboard covers any specific lookup regardless of sort order.
+    bookingRows: bookingRows.sort((a, b) => {
+      const at = a.bookedAt?.toMillis?.() || (a.bookedAt ? new Date(a.bookedAt).getTime() : 0);
+      const bt = b.bookedAt?.toMillis?.() || (b.bookedAt ? new Date(b.bookedAt).getTime() : 0);
+      return bt - at;
+    }),
   };
 }

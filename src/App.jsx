@@ -625,6 +625,100 @@ function PlayerModal({ player: p, achievementCatalog, onClose, onGranted }) {
   );
 }
 
+// Click a booking row to open this. Entirely read-only — no write path,
+// same as everything else in this portal apart from the handful of
+// documented exceptions (welcome package, field claim approval, field
+// info edit, admin notes, patch granting, fee model).
+const EMAIL_STATUS_LABELS = { sent: "Sent", failed: "Failed", not_tracked: "Not tracked" };
+const EMAIL_STATUS_CLASSES = {
+  sent: "bg-positive/10 text-positive border-positive/30",
+  failed: "bg-negative/10 text-negative border-negative/30",
+  not_tracked: "bg-cream text-ink-soft border-cream-line",
+};
+
+function BookingModal({ booking: b, onClose }) {
+  return (
+    <div className="fixed inset-0 z-30 bg-navy/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-white border-b border-cream-line px-6 py-4 flex items-center justify-between z-10 rounded-t-2xl">
+          <div className="flex items-center gap-3">
+            {b.avatarUrl ? (
+              <img src={b.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
+            ) : (
+              <UserCircle2 size={28} className="text-ink-soft" />
+            )}
+            <div>
+              <h2 className="font-display font-bold text-navy text-lg leading-tight">{b.callsign}</h2>
+              <div className="text-xs text-ink-soft">{b.fieldName} &middot; {b.eventTitle}</div>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-ink-soft hover:text-navy" title="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <InfoRow label="Email" value={b.email || "—"} />
+            <InfoRow
+              label="Booked"
+              value={b.bookedAt?.toDate ? b.bookedAt.toDate().toLocaleString() : "—"}
+            />
+            <InfoRow
+              label="Event date"
+              value={b.eventDate?.toDate ? b.eventDate.toDate().toLocaleDateString() : "—"}
+            />
+            <InfoRow label="Total" value={b.paid ? money(b.amountPaidCents) : "Free"} />
+            <InfoRow label="Party" value={b.partyLabel} />
+            {b.minorCallsigns.length > 0 && (
+              <InfoRow label="Child profiles" value={b.minorCallsigns.join(", ")} />
+            )}
+            {b.selectedChoiceLabel && <InfoRow label="Price option" value={b.selectedChoiceLabel} />}
+            {b.selectedRentals.length > 0 && (
+              <InfoRow
+                label="Rentals"
+                value={b.selectedRentals.map((r) => r.label || r.name || "Rental").join(", ")}
+              />
+            )}
+            <InfoRow
+              label="Confirmation email"
+              value={
+                <span
+                  className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full border ${EMAIL_STATUS_CLASSES[b.emailStatus]}`}
+                  title={b.confirmationEmailError || ""}
+                >
+                  {EMAIL_STATUS_LABELS[b.emailStatus]}
+                </span>
+              }
+            />
+          </div>
+
+          {b.confirmationEmailError && (
+            <p className="text-xs text-negative">Last error: {b.confirmationEmailError}</p>
+          )}
+
+          <div className="border-t border-cream-line pt-4">
+            <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-2">
+              Reference (for Michael, not a stored field)
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+              <InfoRow label="Display ref" value={b.bookingRef} />
+              {b.stripeCheckoutSessionId && (
+                <InfoRow label="Stripe session" value={b.stripeCheckoutSessionId} />
+              )}
+              <InfoRow label="Event ID" value={b.eventId} />
+              <InfoRow label="Player UID" value={b.uid} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ email, onSignOut }) {
   const { data, loading, error, reload } = useAdminData();
   const s = summarize(data);
@@ -654,6 +748,12 @@ function Dashboard({ email, onSignOut }) {
 
   const playerRows = (s?.playerRows || []).filter((p) =>
     `${p.callsign} ${p.email || ""} ${p.teamName || ""}`.toLowerCase().includes(playerSearch.toLowerCase())
+  );
+
+  const [bookingSearch, setBookingSearch] = useState("");
+  const [selectedBooking, setSelectedBooking] = useState(null);
+  const bookingRows = (s?.bookingRows || []).filter((b) =>
+    `${b.callsign} ${b.email || ""} ${b.fieldName} ${b.eventTitle}`.toLowerCase().includes(bookingSearch.toLowerCase())
   );
 
   // Marking a welcome package "Sent" is the admin portal's one write path
@@ -767,6 +867,7 @@ function Dashboard({ email, onSignOut }) {
         <a href="#fields" className="text-ink hover:text-accent">Fields</a>
         <a href="#addresses" className="text-ink hover:text-accent">Welcome package targets</a>
         <a href="#players" className="text-ink hover:text-accent">Players</a>
+        <a href="#bookings" className="text-ink hover:text-accent">Bookings</a>
       </nav>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
@@ -1115,6 +1216,78 @@ function Dashboard({ email, onSignOut }) {
               </div>
             </section>
 
+            <section id="bookings" className="bg-white rounded-2xl shadow-md p-5 mt-8 scroll-mt-16">
+              <div className="flex items-center justify-between mb-1 gap-4 flex-wrap">
+                <h2 className="font-display font-bold text-navy flex items-center gap-2">
+                  <Ticket size={16} /> Bookings ({bookingRows.length}{bookingSearch ? ` of ${s.bookingRows.length}` : ""})
+                </h2>
+                <div className="relative">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-soft" />
+                  <input
+                    type="text"
+                    value={bookingSearch}
+                    onChange={(e) => setBookingSearch(e.target.value)}
+                    placeholder="Search callsign, email, field, or event…"
+                    className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-cream-line bg-cream/50 outline-none focus:border-accent w-56"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-ink-soft mb-3">
+                Every booking across every event, newest first. Click a row for the full detail, including
+                confirmation-email status and a Stripe-traceable reference for paid bookings.
+              </p>
+              <div className="overflow-auto max-h-[28rem] border border-cream-dim rounded-lg">
+                <table className="w-full text-sm min-w-[760px]">
+                  <thead className="sticky top-0 bg-white shadow-sm">
+                    <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
+                      <th className="pb-2 pt-2 pl-2 font-medium">Player</th>
+                      <th className="pb-2 pt-2 font-medium">Field / Event</th>
+                      <th className="pb-2 pt-2 font-medium">Booked</th>
+                      <th className="pb-2 pt-2 font-medium text-right">Total</th>
+                      <th className="pb-2 pt-2 font-medium">Party</th>
+                      <th className="pb-2 pt-2 font-medium">Email</th>
+                      <th className="pb-2 pt-2 pr-2 font-medium text-right">Ref</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bookingRows.map((b) => (
+                      <tr key={b.id} className="border-t border-cream-dim">
+                        <td className="py-2 pl-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedBooking(b)}
+                            className="text-navy font-medium hover:underline text-left"
+                          >
+                            {b.callsign}
+                          </button>
+                        </td>
+                        <td className="py-2 text-ink">
+                          {b.fieldName}
+                          <div className="text-xs text-ink-soft">{b.eventTitle}</div>
+                        </td>
+                        <td className="py-2 text-ink-soft">
+                          {b.bookedAt?.toDate ? b.bookedAt.toDate().toLocaleDateString() : "—"}
+                        </td>
+                        <td className="py-2 text-ink text-right">{b.paid ? money(b.amountPaidCents) : "Free"}</td>
+                        <td className="py-2 text-ink">{b.partyLabel}</td>
+                        <td className="py-2">
+                          <span
+                            className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full border ${EMAIL_STATUS_CLASSES[b.emailStatus]}`}
+                          >
+                            {EMAIL_STATUS_LABELS[b.emailStatus]}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-2 text-ink-soft text-right font-mono text-xs">{b.bookingRef}</td>
+                      </tr>
+                    ))}
+                    {bookingRows.length === 0 && (
+                      <tr><td colSpan={7} className="py-4 text-center text-ink-soft">No matches.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
             <p className="text-xs text-ink-soft mt-6">
               Last loaded {data.fetchedAt.toLocaleTimeString()}. "Total Atlas Revenue" is Atlas's own cut
               (Atlas Standard's platform fee — 3.5% + $1.30, capped at $5.00), not the full amount players
@@ -1157,6 +1330,13 @@ function Dashboard({ email, onSignOut }) {
             );
             reload();
           }}
+        />
+      )}
+      {selectedBooking && (
+        <BookingModal
+          key={selectedBooking.id}
+          booking={selectedBooking}
+          onClose={() => setSelectedBooking(null)}
         />
       )}
     </div>
