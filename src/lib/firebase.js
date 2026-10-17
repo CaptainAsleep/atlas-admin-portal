@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+import { getFunctions } from "firebase/functions";
 
 // Same Firebase project as the player and owner apps — Atlas has one
 // shared backend, not one per app. This portal only ever reads from it.
@@ -16,6 +17,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+// No region override -- same default (us-central1) every onCall function
+// in atlas-players-app's functions/index.js already deploys to. Used only
+// by the Email & signup insights page (getEmailInsights), the first Cloud
+// Function this portal has ever called -- everything else here is a
+// direct Firestore read/write.
+export const functions = getFunctions(app);
 
 // Must match the isAdmin() uid in atlas-players-app's firestore.rules
 // exactly — that's the real enforcement. This constant only controls what

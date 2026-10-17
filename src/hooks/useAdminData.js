@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { addDoc, collection, collectionGroup, deleteDoc, doc, getDoc, getDocs, orderBy, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "../lib/firebase";
 
 // Atlas Standard has no subscription tiers anymore (removed 2026-09) —
 // every owner is $0/month, revenue is entirely the per-ticket platform
@@ -75,6 +76,18 @@ export async function updateFieldInfo(fieldId, updates) {
 // Fetched on demand (when the field detail modal opens), not eagerly with
 // the rest of the dashboard — no reason to pay for a read per field on
 // every refresh for a feature only used occasionally.
+// Live Resend email stats for the Email & signup insights page
+// (EmailInsightsPage.jsx) -- calls the getEmailInsights Cloud Function
+// (atlas-players-app/functions/index.js), which holds the RESEND_API_KEY
+// secret server-side; nothing Resend-related can run in this browser.
+// Fetched only when that page is actually opened, same "don't pay for it
+// unless someone's looking" shape as getFieldNotes below.
+export async function getEmailInsights() {
+  const call = httpsCallable(functions, "getEmailInsights");
+  const result = await call();
+  return result.data;
+}
+
 export async function getFieldNotes(fieldId) {
   const snap = await getDocs(
     query(collection(db, "fields", fieldId, "adminNotes"), orderBy("createdAt", "desc"))
@@ -261,9 +274,20 @@ export function useAdminData() {
         });
       }
       const emailByUid = {};
+      // completedOnboarding and welcomeEmailSentAt feed the Email &
+      // signup insights page's conversion funnel (EmailInsightsPage.jsx)
+      // -- both already exist on this same users/{uid} doc (see
+      // sendPlayerWelcomeEmail and the completedOnboarding gate in the
+      // player app's own useAuth.js), so this is free given the fetch
+      // above already happens for email. Not exposed anywhere else.
+      const onboardingByUid = {};
+      const welcomeEmailSentAtByUid = {};
       if (usersSnap) {
         usersSnap.docs.forEach((d) => {
-          emailByUid[d.id] = d.data().email || null;
+          const u = d.data();
+          emailByUid[d.id] = u.email || null;
+          onboardingByUid[d.id] = u.completedOnboarding === true;
+          welcomeEmailSentAtByUid[d.id] = u.welcomeEmailSentAt || null;
         });
       }
       const achievementCatalog = achievementSnap
@@ -284,6 +308,8 @@ export function useAdminData() {
               referralCount: p.referralCount || 0,
               createdAt: p.createdAt || null,
               email: emailByUid[d.id] || null,
+              completedOnboarding: onboardingByUid[d.id] === true,
+              welcomeEmailSentAt: welcomeEmailSentAtByUid[d.id] || null,
               patches,
               patchCount: patches.length,
             };
@@ -536,6 +562,128 @@ export function summarize(data) {
     };
   });
 
+  // ---- Email & signup insights (EmailInsightsPage.jsx): the Firestore
+  // half of that page -- the account-to-booking conversion funnel. Pure
+  // computation over data already in hand (players, bookingRows, which
+  // already carries fieldName/eventTitle/paid per booking) -- no new
+  // Firestore reads. The Resend-only half (email volume/delivery by day
+  // and type) comes from the getEmailInsights Cloud Function instead,
+  // called directly by that page -- see getEmailInsights() above.
+  //
+  // Deliberately no test-account exclusion here (the one-off dashboard
+  // this replaces hand-excluded "two test accounts," but there's no
+  // isTestAccount flag or anything like it anywhere in the schema to do
+  // that automatically) -- every real publicProfiles doc counts.
+  const toMillis = (v) => {
+    if (!v) return null;
+    if (typeof v.toMillis === "function") return v.toMillis();
+    const t = new Date(v).getTime();
+    return Number.isNaN(t) ? null : t;
+  };
+
+  // Earliest booking per uid, across every booking (paid or free).
+  const firstBookingByUid = {};
+  for (const b of bookingRows) {
+    const bt = toMillis(b.bookedAt);
+    if (bt == null) continue;
+    const existing = firstBookingByUid[b.uid];
+    if (!existing || bt < existing.bookedAtMs) {
+      firstBookingByUid[b.uid] = { ...b, bookedAtMs: bt };
+    }
+  }
+
+  const bookers = [];
+  for (const p of players) {
+    const first = firstBookingByUid[p.uid];
+    const createdMs = toMillis(p.createdAt);
+    if (!first || createdMs == null) continue;
+    const welcomeMs = toMillis(p.welcomeEmailSentAt);
+    bookers.push({
+      uid: p.uid,
+      callsign: p.callsign,
+      createdAt: p.createdAt,
+      booked: first.bookedAt,
+      bookedAtMs: first.bookedAtMs,
+      lagMin: (first.bookedAtMs - createdMs) / 60000,
+      // null, not 0, when there's no welcome-email timestamp to compare
+      // against (e.g. an account repaired by scripts/repair-missing-user-docs.mjs,
+      // which deliberately leaves this unset) -- never a false "booked
+      // before the welcome email even went out."
+      welcomeLagMin: welcomeMs != null ? (first.bookedAtMs - welcomeMs) / 60000 : null,
+      field: first.fieldName,
+      event: first.eventTitle,
+      paid: first.paid,
+    });
+  }
+  bookers.sort((a, b) => a.lagMin - b.lagMin);
+
+  const LAG_BUCKETS = [
+    { label: "Under 5 min", min: -Infinity, max: 5 },
+    { label: "5–15 min", min: 5, max: 15 },
+    { label: "15 min–1 hr", min: 15, max: 60 },
+    { label: "1–24 hr", min: 60, max: 1440 },
+    { label: "1–7 days", min: 1440, max: 10080 },
+    { label: "Over 7 days", min: 10080, max: Infinity },
+  ];
+  const buckets = LAG_BUCKETS.map((lb) => {
+    const inBucket = bookers.filter((x) => x.lagMin > lb.min && x.lagMin <= lb.max);
+    return { label: lb.label, count: inBucket.length, ids: inBucket.map((x) => x.uid) };
+  });
+
+  // Detroit-time day key, same convention as the players-app Cloud
+  // Functions use for Detroit-local formatting elsewhere.
+  const dayKeyDetroit = (ms) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/Detroit" });
+  const signupDays = {};
+  for (const p of players) {
+    const ms = toMillis(p.createdAt);
+    if (ms == null) continue;
+    const k = dayKeyDetroit(ms);
+    signupDays[k] = (signupDays[k] || 0) + 1;
+  }
+  const bookingDays = {};
+  for (const b of bookers) {
+    const k = dayKeyDetroit(b.bookedAtMs);
+    bookingDays[k] = (bookingDays[k] || 0) + 1;
+  }
+  // Noon UTC per step, not midnight -- immune to the Detroit DST
+  // transition landing a stepped timestamp on the wrong calendar day.
+  const daily = [];
+  if (players.length) {
+    const minMs = Math.min(...players.map((p) => toMillis(p.createdAt)).filter((x) => x != null));
+    const todayKey = dayKeyDetroit(Date.now());
+    let cursor = new Date(`${dayKeyDetroit(minMs)}T12:00:00Z`);
+    for (let guard = 0; guard < 2000; guard++) {
+      const k = cursor.toISOString().slice(0, 10);
+      daily.push({ d: k, signups: signupDays[k] || 0, bookings: bookingDays[k] || 0 });
+      if (k === todayKey) break;
+      cursor = new Date(cursor.getTime() + 86400000);
+    }
+  }
+
+  const realAccounts = players.length;
+  const onboardedCount = players.filter((p) => p.completedOnboarding).length;
+  const lagValues = bookers.map((b) => b.lagMin).sort((a, b) => a - b);
+  const medianLag = lagValues.length
+    ? (lagValues.length % 2
+        ? lagValues[(lagValues.length - 1) / 2]
+        : (lagValues[lagValues.length / 2 - 1] + lagValues[lagValues.length / 2]) / 2)
+    : null;
+
+  const insights = {
+    realAccounts,
+    onboarded: onboardedCount,
+    bookers: bookers.length,
+    medianLag,
+    within10: bookers.filter((b) => b.lagMin <= 10).length,
+    within60: bookers.filter((b) => b.lagMin <= 60).length,
+    within24h: bookers.filter((b) => b.lagMin <= 1440).length,
+    over7d: bookers.filter((b) => b.lagMin > 10080).length,
+    onboardedNotBooked: onboardedCount - bookers.length,
+    buckets,
+    daily,
+    bookerList: bookers,
+  };
+
   return {
     fieldsTotal: activeFields.length,
     fieldsClaimed,
@@ -577,5 +725,6 @@ export function summarize(data) {
       const bt = b.bookedAt?.toMillis?.() || (b.bookedAt ? new Date(b.bookedAt).getTime() : 0);
       return bt - at;
     }),
+    insights,
   };
 }

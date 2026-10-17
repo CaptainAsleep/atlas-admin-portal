@@ -5,6 +5,7 @@ import {
   UserCircle2, Shield, Award, Bookmark, X, Pencil, Trash2,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
+import EmailInsightsPage from "./EmailInsightsPage.jsx";
 import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote, updateFieldInfo, grantPatchToPlayer, removePatchFromPlayer, updateOwnerFeeModel } from "./hooks/useAdminData";
 
 function money(cents) {
@@ -781,8 +782,7 @@ function BookingModal({ booking: b, onClose }) {
   );
 }
 
-function Dashboard({ email, onSignOut }) {
-  const { data, loading, error, reload } = useAdminData();
+function Dashboard({ email, onSignOut, data, loading, error, reload }) {
   const s = summarize(data);
   // Both lists are capped-height + searchable rather than growing the page
   // forever — Fields especially: fine today at one field, unusable as a
@@ -908,6 +908,16 @@ function Dashboard({ email, onSignOut }) {
             >
               Owner App <ExternalLink size={12} />
             </a>
+            {/* Internal page switch (hash-based, not a real navigation --
+                see AdminShell below) rather than an external link, so it
+                gets no ExternalLink icon. */}
+            <button
+              type="button"
+              onClick={() => { window.location.hash = "insights"; }}
+              className="flex items-center gap-1 hover:opacity-100 hover:underline"
+            >
+              Email &amp; signup insights
+            </button>
           </nav>
         </div>
         <div className="flex items-center gap-4 text-sm">
@@ -1417,6 +1427,35 @@ function Dashboard({ email, onSignOut }) {
   );
 }
 
+// Owns the one useAdminData() call so Dashboard and EmailInsightsPage
+// share the same already-loaded data rather than each fetching their own
+// copy -- only mounted once isAdmin is confirmed (App below), so this
+// hook never fires for a signed-out visitor or a non-admin account.
+// No router installed (none can be installed from the device bridge this
+// repo is edited through -- no npm registry access there), so this is a
+// plain hash check instead: works on GitHub Pages with zero server
+// config, unlike a path-based route would.
+function AdminShell({ email, onSignOut }) {
+  const { data, loading, error, reload } = useAdminData();
+  const [hash, setHash] = useState(window.location.hash);
+  useEffect(() => {
+    const onHashChange = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  if (hash === "#insights") {
+    return (
+      <EmailInsightsPage
+        data={data}
+        s={summarize(data)}
+        onBack={() => { window.location.hash = ""; }}
+      />
+    );
+  }
+  return <Dashboard email={email} onSignOut={onSignOut} data={data} loading={loading} error={error} reload={reload} />;
+}
+
 export default function App() {
   const { user, authLoading, isAdmin, signIn, signOut } = useAdminAuth();
 
@@ -1429,5 +1468,5 @@ export default function App() {
   if (!isAdmin) {
     return <NotAuthorized email={user.email} onSignOut={signOut} />;
   }
-  return <Dashboard email={user.email} onSignOut={signOut} />;
+  return <AdminShell email={user.email} onSignOut={signOut} />;
 }
