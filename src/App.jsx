@@ -2,10 +2,10 @@ import { useState, useEffect } from "react";
 import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
   CalendarDays, Ticket, DollarSign, AlertCircle, ExternalLink, Package, Search, Wallet, Check,
-  UserCircle2, Shield, Award, Bookmark, X, Pencil,
+  UserCircle2, Shield, Award, Bookmark, X, Pencil, Trash2,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
-import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote, updateFieldInfo, grantPatchToPlayer, updateOwnerFeeModel } from "./hooks/useAdminData";
+import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote, updateFieldInfo, grantPatchToPlayer, removePatchFromPlayer, updateOwnerFeeModel } from "./hooks/useAdminData";
 
 function money(cents) {
   return (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
@@ -507,9 +507,38 @@ function FieldModal({ field: f, onClose, onSaved }) {
 // optimistic + backed by a background reload (onGranted, implemented in
 // Dashboard) rather than a dedicated re-fetch-this-player call, since a
 // full reload already re-derives patches for everyone in one pass.
-function PlayerModal({ player: p, achievementCatalog, onClose, onGranted }) {
+function PlayerModal({ player: p, achievementCatalog, onClose, onGranted, onRemoved }) {
   const [grantingId, setGrantingId] = useState(null);
   const [grantError, setGrantError] = useState("");
+  // Two-step remove (click Remove, then Confirm) instead of window.confirm,
+  // so a stray click can't delete a patch.
+  const [confirmRemoveId, setConfirmRemoveId] = useState(null);
+  const [removingId, setRemovingId] = useState(null);
+  const [removeError, setRemoveError] = useState("");
+
+  // A patch comes back on the player's next app open if it's auto-earned:
+  // its catalog entry has a trigger, or it isn't in the catalog at all
+  // (an event's check-in reward). Matched by name, since self-earned patch
+  // doc ids are a slug of the name and can differ from the catalog id.
+  function mayReturn(patch) {
+    const entry = achievementCatalog.find((c) => c.name === patch.name);
+    return entry ? !!entry.trigger : true;
+  }
+
+  async function handleRemove(patch) {
+    setRemovingId(patch.id);
+    setRemoveError("");
+    try {
+      await removePatchFromPlayer(p.uid, patch.id);
+      setConfirmRemoveId(null);
+      onRemoved(patch);
+    } catch (err) {
+      console.error("Couldn't remove patch:", err);
+      setRemoveError("Couldn't remove — try again.");
+    } finally {
+      setRemovingId(null);
+    }
+  }
 
   const ownedIds = new Set(p.patches.map((patch) => patch.id));
 
@@ -564,25 +593,58 @@ function PlayerModal({ player: p, achievementCatalog, onClose, onGranted }) {
             <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-2">
               Owned patches
             </div>
+            {removeError && <p className="text-xs text-negative mb-2">{removeError}</p>}
             {p.patches.length === 0 ? (
               <p className="text-sm text-ink-soft italic">No patches yet.</p>
             ) : (
               <div className="grid grid-cols-2 gap-3">
-                {p.patches.map((patch) => (
-                  <div key={patch.id} className="flex items-center gap-2 text-sm">
-                    {patch.imageUrl ? (
-                      <img src={patch.imageUrl} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
-                    ) : (
-                      <Award size={20} className="text-ink-soft flex-shrink-0" />
-                    )}
-                    <div>
-                      <div className="text-ink">{patch.name}</div>
-                      <div className="text-[10px] text-ink-soft">
-                        {patch.addedAt?.toDate ? patch.addedAt.toDate().toLocaleDateString() : ""}
+                {p.patches.map((patch) => {
+                  const confirming = confirmRemoveId === patch.id;
+                  const removing = removingId === patch.id;
+                  return (
+                    <div key={patch.id} className="flex items-center gap-2 text-sm">
+                      {patch.imageUrl ? (
+                        <img src={patch.imageUrl} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                      ) : (
+                        <Award size={20} className="text-ink-soft flex-shrink-0" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-ink truncate" title={patch.name}>{patch.name}</div>
+                        <div className="text-[10px] text-ink-soft">
+                          {confirming && mayReturn(patch)
+                            ? "Auto-earned. Comes back if they still qualify."
+                            : patch.addedAt?.toDate ? patch.addedAt.toDate().toLocaleDateString() : ""}
+                        </div>
                       </div>
+                      {confirming ? (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={() => handleRemove(patch)}
+                            disabled={removing}
+                            className="text-xs font-medium px-2.5 py-1 rounded-full border bg-negative/10 text-negative border-negative/30 hover:bg-negative/20 disabled:opacity-50"
+                          >
+                            {removing ? "Removing…" : "Confirm"}
+                          </button>
+                          <button
+                            onClick={() => setConfirmRemoveId(null)}
+                            disabled={removing}
+                            className="text-xs text-ink-soft hover:text-navy px-1 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setConfirmRemoveId(patch.id); setRemoveError(""); }}
+                          className="flex-shrink-0 text-ink-soft hover:text-negative p-1"
+                          title="Remove patch"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1325,6 +1387,18 @@ function Dashboard({ email, onSignOut }) {
                       ...prev.patches,
                     ],
                     patchCount: prev.patchCount + 1,
+                  }
+                : prev
+            );
+            reload();
+          }}
+          onRemoved={(patch) => {
+            setSelectedPlayer((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    patches: prev.patches.filter((x) => x.id !== patch.id),
+                    patchCount: Math.max(0, prev.patchCount - 1),
                   }
                 : prev
             );

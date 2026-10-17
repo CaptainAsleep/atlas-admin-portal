@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { addDoc, collection, collectionGroup, doc, getDoc, getDocs, orderBy, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { addDoc, collection, collectionGroup, deleteDoc, doc, getDoc, getDocs, orderBy, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 
 // Atlas Standard has no subscription tiers anymore (removed 2026-09) —
@@ -113,6 +113,18 @@ export async function grantPatchToPlayer(uid, patch) {
     seen: false,
   });
   return { alreadyOwned: false };
+}
+
+// Counterpart to grantPatchToPlayer. Deletes the player's own patch doc by
+// its real doc id (the id from users/{uid}/patches, which for self-earned
+// patches is a slug of the name, not necessarily the catalog id).
+// firestore.rules already allow isAdmin() to write (incl. delete) there.
+// Caveat: the player app re-grants automatically on next open any patch the
+// player still qualifies for (a catalog entry with a trigger, or an event's
+// check-in reward), so removal only sticks for hand-granted patches unless
+// the qualifying data changes too.
+export async function removePatchFromPlayer(uid, patchDocId) {
+  await deleteDoc(doc(db, "users", uid, "patches", patchDocId));
 }
 
 // Sets an owner's fee model directly from the admin portal — feeModel is
