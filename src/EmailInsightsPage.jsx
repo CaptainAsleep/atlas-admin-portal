@@ -158,8 +158,9 @@ export default function EmailInsightsPage({ data, s, onBack }) {
                 <div>
                   <h2>Every player who booked, one dot each</h2>
                   <div className="ei-sub">
-                    Time from account creation to first booking, on a log scale (each gridline is roughly 10×
-                    longer). Rows are sorted fastest to slowest and labeled with the day the account was created.
+                    Each dot is one player, placed by how long they took to book their first event after creating
+                    an account. Dots stack where several players took about the same time. Log scale: each
+                    gridline is roughly 10× longer. Hover a dot for signup date and event.
                   </div>
                 </div>
                 <button className="ei-tv" data-card="dots" aria-pressed="false">

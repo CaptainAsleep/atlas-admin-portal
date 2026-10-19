@@ -66,7 +66,8 @@ function niceMax(v, steps) {
  * emailInsightsSkeleton() in EmailInsightsPage.jsx), driven by `D`:
  *   D.stats        — scalar funnel + email totals (see useAdminData.js's
  *                    `insights` plus the getEmailInsights() Cloud Function result)
- *   D.bookers      — one row per player who's booked, fastest to slowest
+ *   D.bookers      — one entry per player who's booked, fastest to slowest
+ *                    (the dot strip re-sorts by x itself; the table uses this order)
  *   D.buckets      — D.bookers grouped into 6 lag buckets
  *   D.daily        — { d, signups, bookings } per day
  *   D.emailDaily   — { d, <type>: count, ... } per day
@@ -178,64 +179,80 @@ export function mountInsights(container, D) {
     return svg;
   }
 
+  // One dot per player on a single time axis ("dot strip" / beeswarm).
+  // Previously one ROW per player, sorted fastest->slowest and labeled with
+  // the signup date -- which read like a timeline and made it look as if
+  // players were booking faster over time. That slope was just the sort.
+  // Now there's no vertical axis at all: dots pile upward where several
+  // players took about the same time, so pile height = how many people.
+  // Signup date lives in the tooltip.
   function dotsChart(w) {
     const B = D.bookers;
     const n = B.length;
-    const labW = 56;
+    const L = 28;
     const R = w - 28;
-    const L = labW + 8;
-    const rowH = 24;
-    const top = 38;
-    const axisH = 34;
-    const h = top + n * rowH + axisH;
+    const r = 6;
+    const step = 2 * r + 2;
     const lo = 0;
     const hi = Math.log10(43200);
     const X = (m) => L + ((Math.log10(Math.max(1, m)) - lo) / (hi - lo)) * (R - L);
-    const ticks = w < 520 ? [[10, "10 min"], [60, "1 hr"], [1440, "1 day"], [10080, "1 week"]] : [[1, "1 min"], [10, "10 min"], [60, "1 hr"], [1440, "1 day"], [10080, "1 week"], [43200, "30 days"]];
+    const ticks = w < 520 ? [[10, "10 min"], [60, "1 hr"], [1440, "1 day"], [43200, "30 d"]] : [[1, "1 min"], [10, "10 min"], [60, "1 hr"], [1440, "1 day"], [10080, "1 week"], [43200, "30 days"]];
     if (n === 0) {
       const svg = S("svg", { viewBox: `0 0 ${w} 60`, role: "img", "aria-label": "No bookers yet." });
       svg.appendChild(S("text", { x: w / 2, y: 32, "text-anchor": "middle", class: "ei-lab", text: "No one has booked yet." }));
       return svg;
     }
-    const svg = S("svg", { viewBox: `0 0 ${w} ${h}`, role: "img", "aria-label": `Time from account creation to first booking for ${n} players. Median ${fmtLag(S_.medianLag)}.` });
+    // Greedy pile: each dot takes the lowest level with no horizontal overlap.
+    const items = B.map((b) => ({ b, x: Math.min(R, X(b.lagMin)), lvl: 0 })).sort((a, b) => a.x - b.x);
+    const placed = [];
+    items.forEach((it) => {
+      let lvl = 0;
+      while (placed.some((p) => p.lvl === lvl && Math.abs(p.x - it.x) < step)) lvl++;
+      it.lvl = lvl;
+      placed.push(it);
+    });
+    const maxLvl = Math.max(...items.map((it) => it.lvl));
+    const top = 40;
+    const plotH = Math.max(56, (maxLvl + 1) * step + 8);
+    const baseY = top + plotH;
+    const h = baseY + 34;
+    const svg = S("svg", { viewBox: `0 0 ${w} ${h}`, role: "img", "aria-label": `Time from account creation to first booking for ${n} players, one dot each. Median ${fmtLag(S_.medianLag)}.` });
     ticks.forEach(([m, t], i) => {
       const x = X(m);
-      svg.appendChild(S("line", { x1: x, x2: x, y1: top - 8, y2: top + n * rowH, style: "stroke:var(--grid)", "stroke-width": 1 }));
+      svg.appendChild(S("line", { x1: x, x2: x, y1: top - 8, y2: baseY, style: "stroke:var(--grid)", "stroke-width": 1 }));
       const anchor = i === 0 && w >= 520 ? "start" : i === ticks.length - 1 ? "end" : "middle";
-      svg.appendChild(S("text", { x, y: top + n * rowH + 20, "text-anchor": anchor, class: "ei-tick", text: t }));
+      svg.appendChild(S("text", { x, y: baseY + 20, "text-anchor": anchor, class: "ei-tick", text: t }));
     });
-    svg.appendChild(S("line", { x1: L, x2: R, y1: top + n * rowH, y2: top + n * rowH, style: "stroke:var(--axis)", "stroke-width": 1 }));
+    svg.appendChild(S("line", { x1: L, x2: R, y1: baseY, y2: baseY, style: "stroke:var(--axis)", "stroke-width": 1 }));
     const mx = X(S_.medianLag);
-    svg.appendChild(S("line", { x1: mx, x2: mx, y1: top - 10, y2: top + n * rowH, style: "stroke:var(--ink2)", "stroke-width": 1 }));
+    svg.appendChild(S("line", { x1: mx, x2: mx, y1: top - 10, y2: baseY, style: "stroke:var(--ink2)", "stroke-dasharray": "3 3", "stroke-width": 1 }));
     svg.appendChild(S("text", { x: mx + 6, y: top - 14, class: "ei-lab", text: `Median ${fmtLag(S_.medianLag)}` }));
     const fast = B.filter((b) => b.lagMin <= 60);
     const slow = B.filter((b) => b.lagMin > 60);
     if (fast.length && slow.length) {
       const gapA = Math.max(...fast.map((b) => b.lagMin));
       const gapB = Math.min(...slow.map((b) => b.lagMin));
-      const gy = top + Math.min(n - 1, fast.length + 1) * rowH + rowH / 2 - rowH;
       const xa = X(gapA * 1.25);
       const xb = X(gapB * 0.8);
       if (xb - xa > 60) {
+        const gy = baseY - r - 6;
         svg.appendChild(S("path", { d: `M${xa},${gy - 5}V${gy + 5}M${xa},${gy}H${xb}M${xb},${gy - 5}V${gy + 5}`, style: "stroke:var(--ink2);fill:none", "stroke-width": 1 }));
-        svg.appendChild(S("text", { x: (xa + xb) / 2, y: gy - 10, "text-anchor": "middle", class: "ei-lab ei-halo", text: w < 520 ? "Nobody booked here" : `No one booked between ${fmtLag(gapA)} and ${fmtLag(gapB)}` }));
+        // Only label the gap when the label fits inside the bracket, so it
+        // never runs over the dots on either side (narrow screens).
+        const gapText = `No one booked between ${fmtLag(gapA)} and ${fmtLag(gapB)}`;
+        const label = xb - xa > gapText.length * 6.6 ? gapText : xb - xa > 110 ? "Nobody booked here" : null;
+        if (label) svg.appendChild(S("text", { x: (xa + xb) / 2, y: gy - 10, "text-anchor": "middle", class: "ei-lab ei-halo", text: label }));
       }
     }
-    B.forEach((b, i) => {
-      const y = top + i * rowH;
-      const cy = y + rowH / 2;
+    items.forEach(({ b, x, lvl }) => {
+      const cy = baseY - 3 - r - lvl * step;
       const key = b.lagMin <= 60 ? "s2" : "gray";
-      const g = S("g", { class: "ei-row", tabindex: 0, "aria-label": `Account created ${fmtDet(b.createdAt)}, booked after ${fmtLag(b.lagMin)}` });
-      g.appendChild(S("rect", { class: "ei-band", x: 0, y, width: w, height: rowH, rx: 4 }));
-      g.appendChild(S("text", { x: labW, y: cy + 4, "text-anchor": "end", class: "ei-lab", text: fmtDet(b.createdAt) }));
-      const x = X(b.lagMin);
-      g.appendChild(S("circle", { class: "ei-mk", cx: x, cy, r: 5, style: `fill:${F(key)};stroke:var(--surface)`, "stroke-width": 2 }));
-      if (i === 0) g.appendChild(S("text", { x: x + 11, y: cy + 4, class: "ei-val", text: fmtLag(b.lagMin) }));
-      if (i === n - 1) g.appendChild(S("text", { x: x - 11, y: cy + 4, "text-anchor": "end", class: "ei-val", text: fmtLag(b.lagMin) }));
-      bindTip(g, `Account created ${fmtDetTime(b.createdAt)}`, [
-        { key, value: fmtLag(b.lagMin), label: "to first booking" },
-        { value: b.field || "—", label: `· ${b.event || ""}` },
+      const g = S("g", { class: "ei-row", tabindex: 0, "aria-label": `Booked after ${fmtLag(b.lagMin)}; account created ${fmtDet(b.createdAt)}` });
+      g.appendChild(S("circle", { class: "ei-mk", cx: x, cy, r, style: `fill:${F(key)};stroke:var(--surface)`, "stroke-width": 2 }));
+      bindTip(g, `${fmtLag(b.lagMin)} to first booking`, [
+        { key, value: fmtDetTime(b.createdAt), label: "account created" },
         { value: fmtDetTime(b.booked), label: "booked" },
+        { value: b.field || "—", label: `· ${b.event || ""}` },
       ]);
       svg.appendChild(g);
     });
@@ -433,7 +450,7 @@ export function mountInsights(container, D) {
   });
 
   legend("ei-lg-buckets", [{ key: "s2", name: "Booked within the hour" }, { key: "gray", name: "Booked days later" }]);
-  legend("ei-lg-dots", [{ key: "s2", name: "Booked within the hour" }, { key: "gray", name: "Booked days later" }]);
+  legend("ei-lg-dots", [{ key: "s2", name: "Booked within an hour" }, { key: "gray", name: "Took longer than an hour" }]);
   legend("ei-lg-funnel", [{ key: "s1", name: "Sign-up stages" }, { key: "s2", name: "Booking" }]);
   legend("ei-lg-daily", [{ key: "s1", name: "Accounts created" }, { key: "s2", name: "First bookings" }]);
   legend("ei-lg-email", emailSeries);
