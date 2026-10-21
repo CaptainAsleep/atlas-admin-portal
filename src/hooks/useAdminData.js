@@ -560,8 +560,12 @@ export function summarize(data) {
       selectedRentals: Array.isArray(b.selectedRentals) ? b.selectedRentals : [],
       attendeeCount: b.attendeeCount || 1,
       minorCallsigns: minors.map((m) => m.callsign || "Child"),
+      guardianPlaying: b.guardianPlaying !== false,
+      // guardianPlaying false = a parent booked only their child(ren).
       partyLabel: minors.length === 0
         ? "Solo"
+        : b.guardianPlaying === false
+        ? `${minors.length} ${minors.length === 1 ? "child" : "children"} (parent not playing)`
         : `Party of ${1 + minors.length}`,
       emailStatus,
       confirmationEmailError: b.confirmationEmailError || null,
