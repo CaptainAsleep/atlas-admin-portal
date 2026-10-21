@@ -88,6 +88,14 @@ export async function getEmailInsights() {
   return result.data;
 }
 
+// Admin portal #feedback (FeedbackPage.jsx) -- post-event feedback
+// responses with callsigns, via the admin-gated getAdminFeedback callable.
+export async function getAdminFeedback() {
+  const call = httpsCallable(functions, "getAdminFeedback");
+  const result = await call();
+  return result.data;
+}
+
 export async function getFieldNotes(fieldId) {
   const snap = await getDocs(
     query(collection(db, "fields", fieldId, "adminNotes"), orderBy("createdAt", "desc"))

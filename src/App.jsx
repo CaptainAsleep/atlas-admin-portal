@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
 import EmailInsightsPage from "./EmailInsightsPage.jsx";
+import FeedbackPage from "./FeedbackPage.jsx";
 import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote, updateFieldInfo, grantPatchToPlayer, removePatchFromPlayer, updateOwnerFeeModel } from "./hooks/useAdminData";
 
 function money(cents) {
@@ -918,6 +919,13 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
             >
               Email &amp; signup insights
             </button>
+            <button
+              type="button"
+              onClick={() => { window.location.hash = "feedback"; }}
+              className="flex items-center gap-1 hover:opacity-100 hover:underline"
+            >
+              Feedback
+            </button>
           </nav>
         </div>
         <div className="flex items-center gap-4 text-sm">
@@ -1444,6 +1452,9 @@ function AdminShell({ email, onSignOut }) {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
+  if (hash === "#feedback") {
+    return <FeedbackPage onBack={() => { window.location.hash = ""; }} />;
+  }
   if (hash === "#insights") {
     return (
       <EmailInsightsPage
