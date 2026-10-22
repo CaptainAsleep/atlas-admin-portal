@@ -769,6 +769,8 @@ function BookingModal({ booking: b, onClose }) {
               Reference (for Michael, not a stored field)
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+              <InfoRow label="Check-in code" value={b.atlasCode || "None yet"} />
+              <InfoRow label="Checked in" value={b.checkedIn ? `Yes · ${CHECKIN_METHOD_LABELS[b.checkInMethod]}` : "No"} />
               <InfoRow label="Display ref" value={b.bookingRef} />
               {b.stripeCheckoutSessionId && (
                 <InfoRow label="Stripe session" value={b.stripeCheckoutSessionId} />
@@ -780,6 +782,88 @@ function BookingModal({ booking: b, onClose }) {
         </div>
       </div>
     </div>
+  );
+}
+
+const CHECKIN_METHOD_LABELS = { qr: "QR", code: "Code", name: "Name", before: "Before tracking" };
+
+// How check-ins happened (2026-10-22): QR scan, check-in code, or name
+// search. Per event plus a total, filterable by field. Check-ins from
+// before tracking are their own bucket, not guessed.
+function CheckInMethodsSection({ stats }) {
+  const [fieldFilter, setFieldFilter] = useState("all");
+  const fieldOptions = [...new Map(stats.map((r) => [r.fieldId || r.fieldName, r.fieldName])).entries()];
+  const rows = fieldFilter === "all" ? stats : stats.filter((r) => (r.fieldId || r.fieldName) === fieldFilter);
+  const total = rows.reduce((acc, r) => {
+    ["qr", "code", "name", "before", "total"].forEach((k) => { acc[k] += r[k]; });
+    return acc;
+  }, { qr: 0, code: 0, name: 0, before: 0, total: 0 });
+  const pct = (n, of) => (of ? `${Math.round((n / of) * 100)}%` : "—");
+  const cell = (r, k) => (
+    <td className="py-2 text-ink text-right">
+      {r[k]} <span className="text-ink-soft text-xs">{pct(r[k], r.total)}</span>
+    </td>
+  );
+  return (
+    <section id="checkins" className="bg-white rounded-2xl shadow-md p-5 mt-8 scroll-mt-16">
+      <div className="flex items-center justify-between mb-1 gap-4 flex-wrap">
+        <h2 className="font-display font-bold text-navy flex items-center gap-2">
+          <Ticket size={16} /> Check-in methods
+        </h2>
+        <select
+          value={fieldFilter}
+          onChange={(e) => setFieldFilter(e.target.value)}
+          className="px-3 py-1.5 text-sm rounded-lg border border-cream-line bg-cream/50 outline-none focus:border-accent"
+        >
+          <option value="all">All fields</option>
+          {fieldOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+      </div>
+      <p className="text-xs text-ink-soft mb-3">
+        How players were checked in: QR scan, check-in code, or name search. "Before tracking" are check-ins from before
+        this was recorded (2026-10-22). Test bookings are left out. Percentages are of that row's check-ins.
+      </p>
+      <div className="overflow-auto max-h-[28rem] border border-cream-dim rounded-lg">
+        <table className="w-full text-sm min-w-[640px]">
+          <thead className="sticky top-0 bg-white shadow-sm">
+            <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
+              <th className="pb-2 pt-2 pl-2 font-medium">Event</th>
+              <th className="pb-2 pt-2 font-medium text-right">QR</th>
+              <th className="pb-2 pt-2 font-medium text-right">Code</th>
+              <th className="pb-2 pt-2 font-medium text-right">Name</th>
+              <th className="pb-2 pt-2 font-medium text-right">Before tracking</th>
+              <th className="pb-2 pt-2 pr-2 font-medium text-right">Check-ins</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-t border-cream-dim bg-cream/40 font-medium">
+              <td className="py-2 pl-2 text-navy">All events{fieldFilter === "all" ? "" : " at this field"}</td>
+              {cell(total, "qr")}
+              {cell(total, "code")}
+              {cell(total, "name")}
+              {cell(total, "before")}
+              <td className="py-2 pr-2 text-ink text-right">{total.total}</td>
+            </tr>
+            {rows.map((r) => (
+              <tr key={r.eventId} className="border-t border-cream-dim">
+                <td className="py-2 pl-2 text-ink">
+                  {r.eventTitle}
+                  <div className="text-xs text-ink-soft">{r.fieldName}{r.eventDate ? ` · ${r.eventDate}` : ""}</div>
+                </td>
+                {cell(r, "qr")}
+                {cell(r, "code")}
+                {cell(r, "name")}
+                {cell(r, "before")}
+                <td className="py-2 pr-2 text-ink text-right">{r.total}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr><td colSpan={6} className="py-4 text-center text-ink-soft">No check-ins yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -948,6 +1032,7 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
         <a href="#addresses" className="text-ink hover:text-accent">Welcome package targets</a>
         <a href="#players" className="text-ink hover:text-accent">Players</a>
         <a href="#bookings" className="text-ink hover:text-accent">Bookings</a>
+        <a href="#checkins" className="text-ink hover:text-accent">Check-ins</a>
       </nav>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
@@ -1326,7 +1411,8 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
                       <th className="pb-2 pt-2 font-medium text-right">Total</th>
                       <th className="pb-2 pt-2 font-medium">Party</th>
                       <th className="pb-2 pt-2 font-medium">Email</th>
-                      <th className="pb-2 pt-2 pr-2 font-medium text-right">Ref</th>
+                      <th className="pb-2 pt-2 font-medium">Check-in</th>
+                      <th className="pb-2 pt-2 pr-2 font-medium text-right">Code</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1357,16 +1443,19 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
                             {EMAIL_STATUS_LABELS[b.emailStatus]}
                           </span>
                         </td>
-                        <td className="py-2 pr-2 text-ink-soft text-right font-mono text-xs">{b.bookingRef}</td>
+                        <td className="py-2 text-ink-soft text-xs">{b.checkedIn ? CHECKIN_METHOD_LABELS[b.checkInMethod] : "—"}</td>
+                        <td className="py-2 pr-2 text-ink text-right font-mono text-xs" title={`Ref ${b.bookingRef}`}>{b.atlasCode || <span className="text-ink-soft">{b.bookingRef}</span>}</td>
                       </tr>
                     ))}
                     {bookingRows.length === 0 && (
-                      <tr><td colSpan={7} className="py-4 text-center text-ink-soft">No matches.</td></tr>
+                      <tr><td colSpan={8} className="py-4 text-center text-ink-soft">No matches.</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
             </section>
+
+            <CheckInMethodsSection stats={s.checkInMethodStats || []} />
 
             <p className="text-xs text-ink-soft mt-6">
               Last loaded {data.fetchedAt.toLocaleTimeString()}. "Total Atlas Revenue" is Atlas's own cut

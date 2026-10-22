@@ -353,11 +353,22 @@ export function useAdminData() {
         snap.docs.forEach((d) => bookings.push({ id: d.id, eventId: events[i].id, ...d.data() }));
       });
 
+      // Check-in codes (2026-10-22): bookingCodes/{eventId}_{uid}, readable
+      // only by the player and isAdmin(). Best-effort like the stats above —
+      // undeployed rules just mean no codes shown, not a broken dashboard.
+      const codesSnap = await getDocs(collection(db, "bookingCodes")).catch((err) => {
+        console.error("bookingCodes load failed:", err);
+        return null;
+      });
+      const codeByBookingKey = {};
+      if (codesSnap) codesSnap.docs.forEach((d) => { codeByBookingKey[d.id] = d.data().code || null; });
+
       setData({
         fields,
         owners,
         events,
         bookings,
+        codeByBookingKey,
         playersTotal,
         teamsTotal,
         patchesTotal,
@@ -383,7 +394,7 @@ export function useAdminData() {
 /** Turns the raw snapshot from useAdminData into the numbers the dashboard shows. */
 export function summarize(data) {
   if (!data) return null;
-  const { fields, owners, events, bookings, playersTotal, teamsTotal, patchesTotal, players } = data;
+  const { fields, owners, events, bookings, playersTotal, teamsTotal, patchesTotal, players, codeByBookingKey = {} } = data;
 
   // Same three statuses the player app now hides from Home/team-picker
   // listings as of the 2026-09-07/08 field data-quality pass (seed-data.mjs
@@ -560,6 +571,13 @@ export function summarize(data) {
       selectedRentals: Array.isArray(b.selectedRentals) ? b.selectedRentals : [],
       attendeeCount: b.attendeeCount || 1,
       minorCallsigns: minors.map((m) => m.callsign || "Child"),
+      // Atlas check-in code, formatted K7MP-Q3XR (null = none yet / backfill not run).
+      atlasCode: codeByBookingKey[`${b.eventId}_${b.uid}`] ? `${codeByBookingKey[`${b.eventId}_${b.uid}`].slice(0, 4)}-${codeByBookingKey[`${b.eventId}_${b.uid}`].slice(4)}` : null,
+      checkedIn: b.checkedIn === true,
+      // How the check-in happened ("qr" | "code" | "name"); a check-in from
+      // before tracking (2026-10-22) has none -> "before".
+      checkInMethod: b.checkedIn === true ? (["qr", "code", "name"].includes(b.checkInMethod) ? b.checkInMethod : "before") : null,
+      isTest: b.isTest === true,
       guardianPlaying: b.guardianPlaying !== false,
       // guardianPlaying false = a parent booked only their child(ren).
       partyLabel: minors.length === 0
@@ -738,5 +756,26 @@ export function summarize(data) {
       return bt - at;
     }),
     insights,
+    checkInMethodStats: buildCheckInMethodStats(bookingRows, events, fields),
   };
+}
+
+// Check-in method breakdown (2026-10-22): per event and overall, how
+// check-ins happened. Test bookings (QR rehearsal) are left out.
+// "before" = checked in before methods were recorded — never guessed.
+function buildCheckInMethodStats(bookingRows, events, fields) {
+  const empty = () => ({ qr: 0, code: 0, name: 0, before: 0, total: 0 });
+  const byEvent = {};
+  for (const b of bookingRows) {
+    if (!b.checkedIn || b.isTest) continue;
+    if (!byEvent[b.eventId]) {
+      const ev = events.find((e) => e.id === b.eventId) || {};
+      const field = fields.find((f) => f.id === ev.fieldId) || null;
+      byEvent[b.eventId] = { eventId: b.eventId, eventTitle: ev.title || b.eventTitle || b.eventId, eventDate: ev.date || null, fieldId: ev.fieldId || null, fieldName: field?.name || ev.venueName || ev.fieldName || "—", ...empty() };
+    }
+    const row = byEvent[b.eventId];
+    row[b.checkInMethod] += 1;
+    row.total += 1;
+  }
+  return Object.values(byEvent).sort((a, b) => String(b.eventDate || "").localeCompare(String(a.eventDate || "")));
 }
