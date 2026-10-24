@@ -735,7 +735,7 @@ function BookingModal({ booking: b, onClose }) {
               label="Event date"
               value={b.eventDate?.toDate ? b.eventDate.toDate().toLocaleDateString() : "—"}
             />
-            <InfoRow label="Total" value={b.paid ? money(b.amountPaidCents) : "Free"} />
+            <InfoRow label="Total" value={b.paid ? (b.freeEntry ? "Free entry (gift)" : b.paidByVoucher ? "Voucher" : money(b.amountPaidCents)) : "Free"} />
             <InfoRow label="Party" value={b.partyLabel} />
             {b.minorCallsigns.length > 0 && (
               <InfoRow label="Child profiles" value={b.minorCallsigns.join(", ")} />
@@ -1434,7 +1434,7 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
                         <td className="py-2 text-ink-soft">
                           {b.bookedAt?.toDate ? b.bookedAt.toDate().toLocaleDateString() : "—"}
                         </td>
-                        <td className="py-2 text-ink text-right">{b.paid ? money(b.amountPaidCents) : "Free"}</td>
+                        <td className="py-2 text-ink text-right">{b.paid ? (b.freeEntry ? "Free entry" : b.paidByVoucher ? "Voucher" : money(b.amountPaidCents)) : "Free"}</td>
                         <td className="py-2 text-ink">{b.partyLabel}</td>
                         <td className="py-2">
                           <span
