@@ -744,7 +744,7 @@ function BookingModal({ booking: b, onClose }) {
             {b.selectedRentals.length > 0 && (
               <InfoRow
                 label="Rentals"
-                value={b.selectedRentals.map((r) => r.label || r.name || "Rental").join(", ")}
+                value={b.selectedRentals.map((r) => `${r.qty > 1 ? `${r.qty}× ` : ""}${r.label || r.name || "Rental"}`).join(", ")}
               />
             )}
             <InfoRow
