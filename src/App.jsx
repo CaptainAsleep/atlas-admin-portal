@@ -7,6 +7,7 @@ import {
 import { useAdminAuth } from "./hooks/useAdminAuth";
 import EmailInsightsPage from "./EmailInsightsPage.jsx";
 import FeedbackPage from "./FeedbackPage.jsx";
+import CustomPatchesPage from "./CustomPatchesPage.jsx";
 import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote, updateFieldInfo, grantPatchToPlayer, removePatchFromPlayer, updateOwnerFeeModel } from "./hooks/useAdminData";
 
 function money(cents) {
@@ -1010,6 +1011,13 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
             >
               Feedback
             </button>
+            <button
+              type="button"
+              onClick={() => { window.location.hash = "patches"; }}
+              className="flex items-center gap-1 hover:opacity-100 hover:underline"
+            >
+              Owner &amp; team patches
+            </button>
           </nav>
         </div>
         <div className="flex items-center gap-4 text-sm">
@@ -1541,6 +1549,9 @@ function AdminShell({ email, onSignOut }) {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
+  if (hash === "#patches") {
+    return <CustomPatchesPage onBack={() => { window.location.hash = ""; }} />;
+  }
   if (hash === "#feedback") {
     return <FeedbackPage onBack={() => { window.location.hash = ""; }} />;
   }
