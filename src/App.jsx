@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
   CalendarDays, Ticket, DollarSign, AlertCircle, ExternalLink, Package, Search, Wallet, Check,
-  UserCircle2, Shield, Award, Bookmark, X, Pencil, Trash2,
+  UserCircle2, Shield, Award, Bookmark, X, Pencil, Trash2, Menu,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
 import EmailInsightsPage from "./EmailInsightsPage.jsx";
@@ -870,6 +870,10 @@ function CheckInMethodsSection({ stats }) {
 
 function Dashboard({ email, onSignOut, data, loading, error, reload }) {
   const s = summarize(data);
+  // All the header's page-switch/external links live behind one hamburger
+  // menu now instead of a row of inline nav items -- that row kept growing
+  // every time a new admin page shipped (insights, feedback, patches...).
+  const [navMenuOpen, setNavMenuOpen] = useState(false);
   // Both lists are capped-height + searchable rather than growing the page
   // forever — Fields especially: fine today at one field, unusable as a
   // full-page scroll once Atlas is national. The sticky jump nav below
@@ -974,51 +978,72 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
             <LayoutDashboard size={20} />
             <span className="font-display font-bold">Atlas Admin</span>
           </div>
-          {/* Jump to the other two apps — opens in a new tab rather than
-              navigating this dashboard's own tab away, same convention as
-              every external redirect elsewhere in Atlas (see atlas-stack.md). */}
-          <nav className="flex items-center gap-3 text-sm opacity-90">
-            <a
-              href="https://playerapp.airsoftatlas.app"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 hover:opacity-100 hover:underline"
-            >
-              Player App <ExternalLink size={12} />
-            </a>
-            <a
-              href="https://ownerapp.airsoftatlas.app"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 hover:opacity-100 hover:underline"
-            >
-              Owner App <ExternalLink size={12} />
-            </a>
-            {/* Internal page switch (hash-based, not a real navigation --
-                see AdminShell below) rather than an external link, so it
-                gets no ExternalLink icon. */}
+          {/* All page-switch links (hash-based, internal -- see AdminShell
+              below) and both sister-app links (real navigations, opened in
+              a new tab rather than taking over this dashboard's own tab,
+              same convention as every external redirect in Atlas -- see
+              atlas-stack.md) live behind one menu button instead of a
+              growing row of inline links. */}
+          <div className="relative">
             <button
               type="button"
-              onClick={() => { window.location.hash = "insights"; }}
-              className="flex items-center gap-1 hover:opacity-100 hover:underline"
+              onClick={() => setNavMenuOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-sm opacity-90 hover:opacity-100"
+              aria-expanded={navMenuOpen}
+              aria-haspopup="true"
             >
-              Email &amp; signup insights
+              <Menu size={16} /> Menu
             </button>
-            <button
-              type="button"
-              onClick={() => { window.location.hash = "feedback"; }}
-              className="flex items-center gap-1 hover:opacity-100 hover:underline"
-            >
-              Feedback
-            </button>
-            <button
-              type="button"
-              onClick={() => { window.location.hash = "patches"; }}
-              className="flex items-center gap-1 hover:opacity-100 hover:underline"
-            >
-              Owner &amp; team patches
-            </button>
-          </nav>
+            {navMenuOpen && (
+              <>
+                {/* Click-outside-to-close overlay, same convention as this
+                    file's modals (e.g. PlayerModal/FieldModal). */}
+                <div className="fixed inset-0 z-10" onClick={() => setNavMenuOpen(false)} />
+                <nav className="absolute left-0 top-full mt-2 z-20 w-56 bg-white text-navy rounded-lg shadow-xl border border-cream-line py-1 flex flex-col">
+                  <a
+                    href="https://playerapp.airsoftatlas.app"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setNavMenuOpen(false)}
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm hover:bg-cream"
+                  >
+                    Player App <ExternalLink size={12} />
+                  </a>
+                  <a
+                    href="https://ownerapp.airsoftatlas.app"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setNavMenuOpen(false)}
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm hover:bg-cream"
+                  >
+                    Owner App <ExternalLink size={12} />
+                  </a>
+                  <div className="border-t border-cream-line my-1" />
+                  <button
+                    type="button"
+                    onClick={() => { window.location.hash = "insights"; setNavMenuOpen(false); }}
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm text-left hover:bg-cream"
+                  >
+                    Email &amp; signup insights
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { window.location.hash = "feedback"; setNavMenuOpen(false); }}
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm text-left hover:bg-cream"
+                  >
+                    Feedback
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { window.location.hash = "patches"; setNavMenuOpen(false); }}
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm text-left hover:bg-cream"
+                  >
+                    Owner &amp; team patches
+                  </button>
+                </nav>
+              </>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-4 text-sm">
           <button onClick={reload} className="flex items-center gap-1 opacity-90 hover:opacity-100" title="Refresh">
