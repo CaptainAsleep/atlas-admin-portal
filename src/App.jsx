@@ -998,8 +998,12 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
               <>
                 {/* Click-outside-to-close overlay, same convention as this
                     file's modals (e.g. PlayerModal/FieldModal). */}
-                <div className="fixed inset-0 z-10" onClick={() => setNavMenuOpen(false)} />
-                <nav className="absolute left-0 top-full mt-2 z-20 w-56 bg-white text-navy rounded-lg shadow-xl border border-cream-line py-1 flex flex-col">
+                {/* z-40/z-50: the page's sticky jump-nav bar (just below
+                    the header) is z-20, and with equal z-index ties break
+                    by DOM order, so a lower value here loses to that later
+                    sticky element and the menu rendered underneath it. */}
+                <div className="fixed inset-0 z-40" onClick={() => setNavMenuOpen(false)} />
+                <nav className="absolute left-0 top-full mt-2 z-50 w-56 bg-white text-navy rounded-lg shadow-xl border border-cream-line py-1 flex flex-col">
                   <a
                     href="https://playerapp.airsoftatlas.app"
                     target="_blank"
