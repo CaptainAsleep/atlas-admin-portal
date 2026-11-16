@@ -407,7 +407,7 @@ export function summarize(data) {
   // fieldRows/the Fields table itself, since Michael's own notes on why
   // each one is inactive are exactly the kind of thing an admin dashboard
   // (unlike the player-facing app) should keep visible, not hide.
-  const INACTIVE_FIELD_STATUSES = ["closed", "no-airsoft", "relocated"];
+  const INACTIVE_FIELD_STATUSES = ["closed", "no-airsoft", "relocated", "delisted"];
   const activeFields = fields.filter((f) => !INACTIVE_FIELD_STATUSES.includes(f.status));
   const fieldsInactive = fields.length - activeFields.length;
   const fieldsClaimed = activeFields.filter((f) => f.claimed === true).length;

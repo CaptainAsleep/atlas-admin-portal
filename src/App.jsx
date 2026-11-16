@@ -18,7 +18,7 @@ function money(cents) {
 // Display text for a field's status (see INACTIVE_FIELD_STATUSES in
 // useAdminData.js) — hover the badge in the Fields table for Michael's
 // own notes on why a given field landed in one of these.
-const FIELD_STATUS_LABELS = { closed: "closed", "no-airsoft": "no airsoft", relocated: "relocated" };
+const FIELD_STATUS_LABELS = { closed: "closed", "no-airsoft": "no airsoft", relocated: "relocated", delisted: "delisted" };
 
 function LoginScreen({ onSignIn }) {
   const [email, setEmail] = useState("");
