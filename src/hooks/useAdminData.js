@@ -592,6 +592,99 @@ export function summarize(data) {
     };
   });
 
+  // ---- Organizers (Atlas Major): every account that organizes events
+  // rather than (or in addition to) owning a field. Pure computation over
+  // data already fetched for the rest of the dashboard (owners, events,
+  // paidBookings) -- no new Firestore reads, same reuse-what's-already-
+  // fetched approach as fieldRows/bookingRows above.
+  //
+  // accountRoles.organizer is the normal signal, but an account can host
+  // events (events/{id}.hostOwnerId) without it in edge cases (e.g. data
+  // from before the flag existed), so a row is included on EITHER --
+  // mirrors the same `isFieldOwner = accountRoles.fieldOwner || hasFields`
+  // belt-and-suspenders idiom already used in both owner apps rather than
+  // trusting the self-declared flag alone.
+  //
+  // feeModel here is the organizer fee model scope's per-EVENT stamp
+  // (`claude/atlas-organizer-fee-model-scope.md`), not a field owner's
+  // account-level feeModel -- unset means absorb, exactly matching the
+  // server's own `majorPassesFee()` in functions/index.js, so this can
+  // never show a model the backend wouldn't actually charge.
+  const organizerRows = owners
+    .map((o) => {
+      const orgEvents = events.filter((e) => e.hostOwnerId === o.id);
+      const isOrganizer = o.accountRoles?.organizer === true || orgEvents.length > 0;
+      if (!isOrganizer) return null;
+
+      const orgEventIds = new Set(orgEvents.map((e) => e.id));
+      const orgPaidBookings = paidBookings.filter((b) => orgEventIds.has(b.eventId));
+      const feeRevenueCents = orgPaidBookings.reduce((sum, b) => {
+        if (typeof b.bookingFeeCents === "number") return sum + b.bookingFeeCents;
+        if (typeof b.amountPaidCents === "number") return sum + estimateBookingFeeCents(b.amountPaidCents);
+        return sum;
+      }, 0);
+      const grossCents = orgPaidBookings.reduce(
+        (sum, b) => sum + (typeof b.amountPaidCents === "number" ? b.amountPaidCents : 0),
+        0
+      );
+
+      const upcoming = orgEvents.filter((e) => {
+        const d = e.date?.toDate ? e.date.toDate() : e.date ? new Date(e.date) : null;
+        return d && d >= now && !e.canceled && !e.deleted;
+      });
+
+      const feeModelCounts = { absorb: 0, pass_to_player: 0 };
+      orgEvents.forEach((e) => {
+        feeModelCounts[e.feeModel === "pass_to_player" ? "pass_to_player" : "absorb"] += 1;
+      });
+
+      const orgEventRows = orgEvents
+        .map((e) => {
+          const eventPaidBookings = orgPaidBookings.filter((b) => b.eventId === e.id);
+          return {
+            id: e.id,
+            title: e.title || "(untitled event)",
+            date: e.date || null,
+            venueName: e.fieldName || e.venueName || null,
+            venueCity: e.venueCity || null,
+            venueState: e.venueState || null,
+            feeModel: e.feeModel === "pass_to_player" ? "pass_to_player" : "absorb",
+            testEvent: e.testEvent === true,
+            canceled: e.canceled === true,
+            deleted: e.deleted === true,
+            paidBookingsCount: eventPaidBookings.length,
+          };
+        })
+        .sort((a, b) => {
+          const ad = a.date?.toDate ? a.date.toDate() : a.date ? new Date(a.date) : new Date(0);
+          const bd = b.date?.toDate ? b.date.toDate() : b.date ? new Date(b.date) : new Date(0);
+          return bd - ad;
+        });
+
+      return {
+        id: o.id,
+        organizerName: o.organizerName || o.name || o.email || "(no name set)",
+        name: o.name || null,
+        email: o.email || null,
+        testAccount: o.testAccount === true,
+        isFieldOwnerToo: o.accountRoles?.fieldOwner === true,
+        payoutsEnabled: o.payoutsEnabled === true,
+        chargesEnabled: o.chargesEnabled === true,
+        acceptedOrganizerTermsVersion: o.acceptedOrganizerTermsVersion || null,
+        acceptedOrganizerTermsAt: o.acceptedOrganizerTermsAt || null,
+        createdAt: o.createdAt || null,
+        eventsCount: orgEvents.length,
+        upcomingEventsCount: upcoming.length,
+        paidBookingsCount: orgPaidBookings.length,
+        feeRevenueCents,
+        grossCents,
+        feeModelCounts,
+        events: orgEventRows,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+
   // ---- Email & signup insights (EmailInsightsPage.jsx): the Firestore
   // half of that page -- the account-to-booking conversion funnel. Pure
   // computation over data already in hand (players, bookingRows, which
@@ -741,6 +834,7 @@ export function summarize(data) {
     totalAtlasRevenueCents: bookingFeeRevenueCents,
     estimatedFeeCount,
     fieldRows: fieldRows.sort((a, b) => b.revenueCents - a.revenueCents),
+    organizerRows,
     // Newest signups first — matches the recency-first read Michael
     // actually wants here (who just joined), unlike fieldRows above
     // which sorts by "most revenue-relevant." Search on top of this in

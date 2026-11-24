@@ -787,6 +787,142 @@ function BookingModal({ booking: b, onClose }) {
   );
 }
 
+// Payouts/charges reuse the exact same Stripe Connect account fields a
+// field owner's row already shows (owners/{uid}.payoutsEnabled/
+// chargesEnabled) -- organizers and field owners share one account doc,
+// so this is the same data, not a parallel Stripe integration.
+const PAYOUT_STATUS_LABELS = { enabled: "Payouts enabled", pending: "Not set up" };
+const PAYOUT_STATUS_CLASSES = {
+  enabled: "bg-positive/10 text-positive border-positive/30",
+  pending: "bg-negative/10 text-negative border-negative/30",
+};
+// FEE_MODEL_LABELS (absorb/pass_to_player) is already imported above from
+// useAdminData.js for a field owner's account-level choice -- reused as-is
+// here for an organizer event's per-event stamp, same vocabulary.
+
+function OrganizerModal({ organizer: o, onClose }) {
+  const payoutStatus = o.payoutsEnabled ? "enabled" : "pending";
+  return (
+    <div className="fixed inset-0 z-30 bg-navy/60 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-white border-b border-cream-line px-6 py-4 flex items-center justify-between z-10 rounded-t-2xl">
+          <div>
+            <h2 className="font-display font-bold text-navy text-lg leading-tight">{o.organizerName}</h2>
+            <div className="text-xs text-ink-soft flex items-center gap-2 flex-wrap">
+              {o.email || "—"}
+              {o.testAccount && (
+                <span className="inline-block text-xs font-medium px-2 py-0.5 rounded-full border bg-cream text-ink-soft border-cream-line">
+                  Test account
+                </span>
+              )}
+              {o.isFieldOwnerToo && (
+                <span className="inline-block text-xs font-medium px-2 py-0.5 rounded-full border bg-cream text-ink-soft border-cream-line">
+                  Also a field owner
+                </span>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} className="text-ink-soft hover:text-navy" title="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <InfoRow label="Account name" value={o.name || "—"} />
+            <InfoRow
+              label="Payouts"
+              value={
+                <span
+                  className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full border ${PAYOUT_STATUS_CLASSES[payoutStatus]}`}
+                >
+                  {PAYOUT_STATUS_LABELS[payoutStatus]}
+                </span>
+              }
+            />
+            <InfoRow label="Charges enabled" value={o.chargesEnabled ? "yes" : "no"} />
+            <InfoRow
+              label="Organizer terms"
+              value={
+                o.acceptedOrganizerTermsVersion
+                  ? `Accepted ${o.acceptedOrganizerTermsVersion}${
+                      o.acceptedOrganizerTermsAt?.toDate
+                        ? ` · ${o.acceptedOrganizerTermsAt.toDate().toLocaleDateString()}`
+                        : ""
+                    }`
+                  : "Not yet accepted"
+              }
+            />
+            <InfoRow label="Joined" value={o.createdAt?.toDate ? o.createdAt.toDate().toLocaleDateString() : "—"} />
+            <InfoRow label="Events" value={`${o.eventsCount} (${o.upcomingEventsCount} upcoming)`} />
+            <InfoRow
+              label="Fee model"
+              value={`${o.feeModelCounts.absorb} absorb, ${o.feeModelCounts.pass_to_player} pass to player`}
+            />
+            <InfoRow label="Paid bookings" value={o.paidBookingsCount} />
+            <InfoRow label="Gross ticket sales" value={money(o.grossCents)} />
+            <InfoRow label="Revenue (Atlas fee)" value={money(o.feeRevenueCents)} />
+          </div>
+
+          <div className="border-t border-cream-line pt-4">
+            <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-2">
+              Events hosted
+            </div>
+            <div className="overflow-auto max-h-56 border border-cream-dim rounded-lg">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="text-left text-ink-soft uppercase tracking-wide">
+                    <th className="pb-2 pt-2 pl-2 font-medium">Event</th>
+                    <th className="pb-2 pt-2 font-medium">Date</th>
+                    <th className="pb-2 pt-2 font-medium">Fee model</th>
+                    <th className="pb-2 pt-2 pr-2 font-medium text-right">Paid bookings</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {o.events.map((e) => (
+                    <tr key={e.id} className="border-t border-cream-dim">
+                      <td className="py-2 pl-2 text-ink">
+                        {e.title}
+                        {(e.testEvent || e.canceled || e.deleted) && (
+                          <span className="text-ink-soft">
+                            {" "}
+                            ({[e.testEvent && "test", e.canceled && "canceled", e.deleted && "deleted"].filter(Boolean).join(", ")})
+                          </span>
+                        )}
+                        <div className="text-ink-soft">
+                          {[e.venueName, [e.venueCity, e.venueState].filter(Boolean).join(", ")].filter(Boolean).join(" · ")}
+                        </div>
+                      </td>
+                      <td className="py-2 text-ink-soft">{e.date || "—"}</td>
+                      <td className="py-2 text-ink">{FEE_MODEL_LABELS[e.feeModel]}</td>
+                      <td className="py-2 pr-2 text-ink text-right">{e.paidBookingsCount}</td>
+                    </tr>
+                  ))}
+                  {o.events.length === 0 && (
+                    <tr><td colSpan={4} className="py-4 text-center text-ink-soft">No events yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="border-t border-cream-line pt-4">
+            <div className="text-ink-soft text-[10px] font-semibold uppercase tracking-wide mb-2">
+              Reference (for Michael, not a stored field)
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+              <InfoRow label="Account UID" value={o.id} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const CHECKIN_METHOD_LABELS = { qr: "QR", code: "Code", name: "Name", before: "Before tracking" };
 
 // How check-ins happened (2026-10-22): QR scan, check-in code, or name
@@ -887,6 +1023,12 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const fieldRows = (s?.fieldRows || []).filter((f) =>
     `${f.name} ${f.ownerName} ${f.status}`.toLowerCase().includes(fieldSearch.toLowerCase())
+  );
+
+  const [organizerSearch, setOrganizerSearch] = useState("");
+  const [selectedOrganizer, setSelectedOrganizer] = useState(null);
+  const organizerRows = (s?.organizerRows || []).filter((o) =>
+    `${o.organizerName} ${o.email || ""}`.toLowerCase().includes(organizerSearch.toLowerCase())
   );
   // Welcome package targets — cold-mail candidates, not fulfillment.
   // Unclaimed (that's the whole point: get them to sign up) and excludes
@@ -1074,6 +1216,7 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
           length. */}
       <nav className="sticky top-0 z-20 bg-cream/95 backdrop-blur shadow-sm px-6 py-2 flex items-center gap-4 text-sm">
         <a href="#fields" className="text-ink hover:text-accent">Fields</a>
+        <a href="#organizers" className="text-ink hover:text-accent">Organizers</a>
         <a href="#addresses" className="text-ink hover:text-accent">Welcome package targets</a>
         <a href="#players" className="text-ink hover:text-accent">Players</a>
         <a href="#bookings" className="text-ink hover:text-accent">Bookings</a>
@@ -1276,6 +1419,74 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
                     ))}
                     {fieldRows.length === 0 && (
                       <tr><td colSpan={7} className="py-4 text-center text-ink-soft">No fields match "{fieldSearch}".</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section id="organizers" className="bg-white rounded-2xl shadow-md p-5 mt-8 scroll-mt-16">
+              <div className="flex items-center justify-between mb-1 gap-4 flex-wrap">
+                <h2 className="font-display font-bold text-navy flex items-center gap-2">
+                  <Users size={16} /> Organizers ({organizerRows.length}{organizerSearch ? ` of ${s.organizerRows.length}` : ""})
+                </h2>
+                <div className="relative">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-soft" />
+                  <input
+                    type="text"
+                    value={organizerSearch}
+                    onChange={(e) => setOrganizerSearch(e.target.value)}
+                    placeholder="Search name or email…"
+                    className="pl-8 pr-3 py-1.5 text-sm rounded-lg border border-cream-line bg-cream/50 outline-none focus:border-accent w-56"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-ink-soft mb-3">
+                Atlas Major event organizers — accounts that host their own events rather than (or in addition
+                to) owning a field. Click a row for payout status, terms acceptance, and every event they've
+                created.
+              </p>
+              <div className="overflow-auto max-h-[28rem] border border-cream-dim rounded-lg">
+                <table className="w-full text-sm min-w-[640px]">
+                  <thead className="sticky top-0 bg-white shadow-sm">
+                    <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
+                      <th className="pb-2 pt-2 pl-2 font-medium">Organizer</th>
+                      <th className="pb-2 pt-2 font-medium">Email</th>
+                      <th className="pb-2 pt-2 font-medium">Payouts</th>
+                      <th className="pb-2 pt-2 font-medium text-right">Events</th>
+                      <th className="pb-2 pt-2 pr-2 font-medium text-right">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {organizerRows.map((o) => {
+                      const payoutStatus = o.payoutsEnabled ? "enabled" : "pending";
+                      return (
+                        <tr key={o.id} className="border-t border-cream-dim">
+                          <td className="py-2 pl-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedOrganizer(o)}
+                              className="text-navy font-medium hover:underline text-left"
+                            >
+                              {o.organizerName}
+                            </button>
+                            {o.testAccount && <span className="text-xs text-ink-soft"> · test</span>}
+                          </td>
+                          <td className="py-2 text-ink">{o.email || "—"}</td>
+                          <td className="py-2">
+                            <span
+                              className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full border ${PAYOUT_STATUS_CLASSES[payoutStatus]}`}
+                            >
+                              {PAYOUT_STATUS_LABELS[payoutStatus]}
+                            </span>
+                          </td>
+                          <td className="py-2 text-ink text-right">{o.eventsCount}</td>
+                          <td className="py-2 pr-2 text-ink text-right">{money(o.feeRevenueCents)}</td>
+                        </tr>
+                      );
+                    })}
+                    {organizerRows.length === 0 && (
+                      <tr><td colSpan={5} className="py-4 text-center text-ink-soft">No matches.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -1563,6 +1774,13 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
           key={selectedBooking.id}
           booking={selectedBooking}
           onClose={() => setSelectedBooking(null)}
+        />
+      )}
+      {selectedOrganizer && (
+        <OrganizerModal
+          key={selectedOrganizer.id}
+          organizer={selectedOrganizer}
+          onClose={() => setSelectedOrganizer(null)}
         />
       )}
     </div>
