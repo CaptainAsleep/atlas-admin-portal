@@ -3,6 +3,7 @@ import {
   LayoutDashboard, LogOut, RefreshCw, ShieldAlert, MapPin, Users,
   CalendarDays, Ticket, DollarSign, AlertCircle, ExternalLink, Package, Search, Wallet, Check,
   UserCircle2, Shield, Award, Bookmark, X, Pencil, Trash2, Menu,
+  ChevronUp, ChevronDown, ChevronsUpDown,
 } from "lucide-react";
 import { useAdminAuth } from "./hooks/useAdminAuth";
 import EmailInsightsPage from "./EmailInsightsPage.jsx";
@@ -1005,6 +1006,131 @@ function CheckInMethodsSection({ stats }) {
   );
 }
 
+// ---- Click-to-sort table headers, shared by every listing table in the
+// dashboard (Fields, Organizers, Welcome package targets, Players,
+// Bookings) -- one sort behavior and one visual treatment instead of five
+// hand-rolled copies.
+//
+// Each table keeps whatever default order summarize() already gives it
+// (most fields: revenue desc; players/organizers: newest first; bookings:
+// newest first) until a header is clicked -- useSort()'s initial
+// { key: null } makes applySort a no-op, so nothing changes until the
+// admin actually asks for a different order.
+//
+// For a status-like column (Claim, Payouts, Field status, Email, Check-
+// in) the value-getter below returns a small rank rather than the raw
+// label, chosen so the notable/positive state sorts to the top on the
+// very first click -- claimed before pending before unclaimed, payouts
+// enabled before not, sent before not-tracked before failed, and so on.
+// That's the exact behavior asked for ("click Claim, see claimed fields
+// at the top"), generalized to every other status column rather than
+// special-cased to just that one.
+function compareValues(a, b) {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  if (typeof a === "string" && typeof b === "string") {
+    return a.localeCompare(b, undefined, { sensitivity: "base" });
+  }
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+function applySort(rows, sort, columns) {
+  const getValue = columns[sort.key];
+  if (!getValue) return rows;
+  const sorted = [...rows].sort((a, b) => compareValues(getValue(a), getValue(b)));
+  return sort.dir === "asc" ? sorted : sorted.reverse();
+}
+
+function useSort() {
+  const [sort, setSort] = useState({ key: null, dir: "desc" });
+  const onSort = (key) =>
+    setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }));
+  return [sort, onSort];
+}
+
+function SortTh({ children, sortKey, sort, onSort, align, className = "" }) {
+  const active = sort.key === sortKey;
+  const Icon = !active ? ChevronsUpDown : sort.dir === "asc" ? ChevronUp : ChevronDown;
+  return (
+    <th className={`pb-2 pt-2 font-medium ${align === "right" ? "text-right" : ""} ${className}`}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex items-center gap-1 hover:text-navy ${active ? "text-navy" : ""} ${
+          align === "right" ? "flex-row-reverse" : ""
+        }`}
+      >
+        {children}
+        <Icon size={12} className={active ? "text-navy" : "text-ink-soft/40"} />
+      </button>
+    </th>
+  );
+}
+
+const FIELD_SORT_COLUMNS = {
+  field: (f) => f.name,
+  owner: (f) => f.ownerName,
+  status: (f) => (f.status === "active" ? 1 : 0),
+  claim: (f) => (f.claimed ? 2 : f.claimPending ? 1 : 0),
+  events: (f) => f.eventsCount,
+  paidBookings: (f) => f.paidBookingsCount,
+  revenue: (f) => f.revenueCents,
+};
+
+const ORGANIZER_SORT_COLUMNS = {
+  organizer: (o) => o.organizerName,
+  email: (o) => o.email,
+  payouts: (o) => (o.payoutsEnabled ? 1 : 0),
+  events: (o) => o.eventsCount,
+  revenue: (o) => o.feeRevenueCents,
+};
+
+const ADDRESS_SORT_COLUMNS = {
+  field: (f) => f.name,
+  address: (f) => [f.address, f.city].filter(Boolean).join(", "),
+  sent: (f) => (f.welcomePackageStatus?.sent ? 1 : 0),
+};
+
+function playerJoinedMillis(p) {
+  if (p.createdAt?.toMillis) return p.createdAt.toMillis();
+  if (p.createdAt) {
+    const t = new Date(p.createdAt).getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  return null;
+}
+
+const PLAYER_SORT_COLUMNS = {
+  callsign: (p) => p.callsign,
+  email: (p) => p.email,
+  team: (p) => p.teamName,
+  patches: (p) => p.patchCount,
+  joined: playerJoinedMillis,
+};
+
+function bookingBookedMillis(b) {
+  if (b.bookedAt?.toMillis) return b.bookedAt.toMillis();
+  if (b.bookedAt) {
+    const t = new Date(b.bookedAt).getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  return null;
+}
+
+const BOOKING_SORT_COLUMNS = {
+  player: (b) => b.callsign,
+  field: (b) => b.fieldName,
+  booked: bookingBookedMillis,
+  total: (b) => (b.paid ? b.amountPaidCents ?? 0 : 0),
+  party: (b) => b.partyLabel,
+  email: (b) => (b.emailStatus === "sent" ? 2 : b.emailStatus === "not_tracked" ? 1 : 0),
+  checkin: (b) => (b.checkedIn ? 1 : 0),
+  code: (b) => b.atlasCode || b.bookingRef,
+};
+
 function Dashboard({ email, onSignOut, data, loading, error, reload }) {
   const s = summarize(data);
   // All the header's page-switch/external links live behind one hamburger
@@ -1024,12 +1150,14 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
   const fieldRows = (s?.fieldRows || []).filter((f) =>
     `${f.name} ${f.ownerName} ${f.status}`.toLowerCase().includes(fieldSearch.toLowerCase())
   );
+  const [fieldSort, onSortField] = useSort();
 
   const [organizerSearch, setOrganizerSearch] = useState("");
   const [selectedOrganizer, setSelectedOrganizer] = useState(null);
   const organizerRows = (s?.organizerRows || []).filter((o) =>
     `${o.organizerName} ${o.email || ""}`.toLowerCase().includes(organizerSearch.toLowerCase())
   );
+  const [organizerSort, onSortOrganizer] = useSort();
   // Welcome package targets — cold-mail candidates, not fulfillment.
   // Unclaimed (that's the whole point: get them to sign up) and excludes
   // closed/non-airsoft/relocated fields, same inactive-status list used
@@ -1040,16 +1168,19 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
   const addressRows = addressCandidates.filter((f) =>
     `${f.name} ${f.city || ""} ${f.address || ""}`.toLowerCase().includes(addressSearch.toLowerCase())
   );
+  const [addressSort, onSortAddress] = useSort();
 
   const playerRows = (s?.playerRows || []).filter((p) =>
     `${p.callsign} ${p.email || ""} ${p.teamName || ""}`.toLowerCase().includes(playerSearch.toLowerCase())
   );
+  const [playerSort, onSortPlayer] = useSort();
 
   const [bookingSearch, setBookingSearch] = useState("");
   const [selectedBooking, setSelectedBooking] = useState(null);
   const bookingRows = (s?.bookingRows || []).filter((b) =>
     `${b.callsign} ${b.email || ""} ${b.fieldName} ${b.eventTitle}`.toLowerCase().includes(bookingSearch.toLowerCase())
   );
+  const [bookingSort, onSortBooking] = useSort();
 
   // Marking a welcome package "Sent" is the admin portal's one write path
   // (everything else here is read-only by design). No optimistic local
@@ -1354,17 +1485,17 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
                 <table className="w-full text-sm min-w-[640px]">
                   <thead className="sticky top-0 bg-white shadow-sm">
                     <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
-                      <th className="pb-2 pt-2 pl-2 font-medium">Field</th>
-                      <th className="pb-2 pt-2 font-medium">Owner</th>
-                      <th className="pb-2 pt-2 font-medium">Field status</th>
-                      <th className="pb-2 pt-2 font-medium">Claim</th>
-                      <th className="pb-2 pt-2 font-medium text-right">Events</th>
-                      <th className="pb-2 pt-2 font-medium text-right">Paid bookings</th>
-                      <th className="pb-2 pt-2 pr-2 font-medium text-right">Revenue</th>
+                      <SortTh sortKey="field" sort={fieldSort} onSort={onSortField} className="pl-2">Field</SortTh>
+                      <SortTh sortKey="owner" sort={fieldSort} onSort={onSortField}>Owner</SortTh>
+                      <SortTh sortKey="status" sort={fieldSort} onSort={onSortField}>Field status</SortTh>
+                      <SortTh sortKey="claim" sort={fieldSort} onSort={onSortField}>Claim</SortTh>
+                      <SortTh sortKey="events" sort={fieldSort} onSort={onSortField} align="right">Events</SortTh>
+                      <SortTh sortKey="paidBookings" sort={fieldSort} onSort={onSortField} align="right">Paid bookings</SortTh>
+                      <SortTh sortKey="revenue" sort={fieldSort} onSort={onSortField} align="right" className="pr-2">Revenue</SortTh>
                     </tr>
                   </thead>
                   <tbody>
-                    {fieldRows.map((f) => (
+                    {applySort(fieldRows, fieldSort, FIELD_SORT_COLUMNS).map((f) => (
                       <tr key={f.id} className="border-t border-cream-dim">
                         <td className="py-2 pl-2">
                           <button
@@ -1450,15 +1581,15 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
                 <table className="w-full text-sm min-w-[640px]">
                   <thead className="sticky top-0 bg-white shadow-sm">
                     <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
-                      <th className="pb-2 pt-2 pl-2 font-medium">Organizer</th>
-                      <th className="pb-2 pt-2 font-medium">Email</th>
-                      <th className="pb-2 pt-2 font-medium">Payouts</th>
-                      <th className="pb-2 pt-2 font-medium text-right">Events</th>
-                      <th className="pb-2 pt-2 pr-2 font-medium text-right">Revenue</th>
+                      <SortTh sortKey="organizer" sort={organizerSort} onSort={onSortOrganizer} className="pl-2">Organizer</SortTh>
+                      <SortTh sortKey="email" sort={organizerSort} onSort={onSortOrganizer}>Email</SortTh>
+                      <SortTh sortKey="payouts" sort={organizerSort} onSort={onSortOrganizer}>Payouts</SortTh>
+                      <SortTh sortKey="events" sort={organizerSort} onSort={onSortOrganizer} align="right">Events</SortTh>
+                      <SortTh sortKey="revenue" sort={organizerSort} onSort={onSortOrganizer} align="right" className="pr-2">Revenue</SortTh>
                     </tr>
                   </thead>
                   <tbody>
-                    {organizerRows.map((o) => {
+                    {applySort(organizerRows, organizerSort, ORGANIZER_SORT_COLUMNS).map((o) => {
                       const payoutStatus = o.payoutsEnabled ? "enabled" : "pending";
                       return (
                         <tr key={o.id} className="border-t border-cream-dim">
@@ -1523,13 +1654,13 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
                 <table className="w-full text-sm min-w-[480px]">
                   <thead className="sticky top-0 bg-white shadow-sm">
                     <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
-                      <th className="pb-2 pt-2 pl-2 font-medium">Field</th>
-                      <th className="pb-2 pt-2 font-medium">Address</th>
-                      <th className="pb-2 pt-2 pr-2 font-medium text-right">Sent</th>
+                      <SortTh sortKey="field" sort={addressSort} onSort={onSortAddress} className="pl-2">Field</SortTh>
+                      <SortTh sortKey="address" sort={addressSort} onSort={onSortAddress}>Address</SortTh>
+                      <SortTh sortKey="sent" sort={addressSort} onSort={onSortAddress} align="right" className="pr-2">Sent</SortTh>
                     </tr>
                   </thead>
                   <tbody>
-                    {addressRows.map((f) => {
+                    {applySort(addressRows, addressSort, ADDRESS_SORT_COLUMNS).map((f) => {
                       const wp = f.welcomePackageStatus;
                       const mailingAddress = [f.address, f.city].filter(Boolean).join(", ");
                       return (
@@ -1602,15 +1733,15 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
                 <table className="w-full text-sm min-w-[640px]">
                   <thead className="sticky top-0 bg-white shadow-sm">
                     <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
-                      <th className="pb-2 pt-2 pl-2 font-medium">Callsign</th>
-                      <th className="pb-2 pt-2 font-medium">Email</th>
-                      <th className="pb-2 pt-2 font-medium">Team</th>
-                      <th className="pb-2 pt-2 font-medium text-right">Patches</th>
-                      <th className="pb-2 pt-2 pr-2 font-medium text-right">Joined</th>
+                      <SortTh sortKey="callsign" sort={playerSort} onSort={onSortPlayer} className="pl-2">Callsign</SortTh>
+                      <SortTh sortKey="email" sort={playerSort} onSort={onSortPlayer}>Email</SortTh>
+                      <SortTh sortKey="team" sort={playerSort} onSort={onSortPlayer}>Team</SortTh>
+                      <SortTh sortKey="patches" sort={playerSort} onSort={onSortPlayer} align="right">Patches</SortTh>
+                      <SortTh sortKey="joined" sort={playerSort} onSort={onSortPlayer} align="right" className="pr-2">Joined</SortTh>
                     </tr>
                   </thead>
                   <tbody>
-                    {playerRows.map((p) => (
+                    {applySort(playerRows, playerSort, PLAYER_SORT_COLUMNS).map((p) => (
                       <tr key={p.uid} className="border-t border-cream-dim">
                         <td className="py-2 pl-2">
                           <button
@@ -1661,18 +1792,18 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
                 <table className="w-full text-sm min-w-[760px]">
                   <thead className="sticky top-0 bg-white shadow-sm">
                     <tr className="text-left text-ink-soft text-xs uppercase tracking-wide">
-                      <th className="pb-2 pt-2 pl-2 font-medium">Player</th>
-                      <th className="pb-2 pt-2 font-medium">Field / Event</th>
-                      <th className="pb-2 pt-2 font-medium">Booked</th>
-                      <th className="pb-2 pt-2 font-medium text-right">Total</th>
-                      <th className="pb-2 pt-2 font-medium">Party</th>
-                      <th className="pb-2 pt-2 font-medium">Email</th>
-                      <th className="pb-2 pt-2 font-medium">Check-in</th>
-                      <th className="pb-2 pt-2 pr-2 font-medium text-right">Code</th>
+                      <SortTh sortKey="player" sort={bookingSort} onSort={onSortBooking} className="pl-2">Player</SortTh>
+                      <SortTh sortKey="field" sort={bookingSort} onSort={onSortBooking}>Field / Event</SortTh>
+                      <SortTh sortKey="booked" sort={bookingSort} onSort={onSortBooking}>Booked</SortTh>
+                      <SortTh sortKey="total" sort={bookingSort} onSort={onSortBooking} align="right">Total</SortTh>
+                      <SortTh sortKey="party" sort={bookingSort} onSort={onSortBooking}>Party</SortTh>
+                      <SortTh sortKey="email" sort={bookingSort} onSort={onSortBooking}>Email</SortTh>
+                      <SortTh sortKey="checkin" sort={bookingSort} onSort={onSortBooking}>Check-in</SortTh>
+                      <SortTh sortKey="code" sort={bookingSort} onSort={onSortBooking} align="right" className="pr-2">Code</SortTh>
                     </tr>
                   </thead>
                   <tbody>
-                    {bookingRows.map((b) => (
+                    {applySort(bookingRows, bookingSort, BOOKING_SORT_COLUMNS).map((b) => (
                       <tr key={b.id} className="border-t border-cream-dim">
                         <td className="py-2 pl-2">
                           <button
