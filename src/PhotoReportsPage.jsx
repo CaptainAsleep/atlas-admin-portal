@@ -58,7 +58,12 @@ export default function PhotoReportsPage({ onBack }) {
   useEffect(load, []);
 
   const act = async (c, action) => {
-    const what = action === "remove" ? "Remove this photo for good? The player can add a new one." : "Restore this photo? It goes back on their profile or card, and the same reporters can't hide it again.";
+    const what = {
+      remove: "Remove this photo for good? The player can add a new one.",
+      restore: "Restore this photo? It goes back on their profile or card, and the same reporters can't hide it again.",
+      hide: "Hide this photo now? It comes off their profile or card until you restore or remove it.",
+      dismiss: "Dismiss these reports? The photo stays up, and the same players can't report it again.",
+    }[action];
     if (!window.confirm(what)) return;
     setBusy(c.id);
     try {
@@ -92,7 +97,7 @@ export default function PhotoReportsPage({ onBack }) {
       <main className="max-w-6xl mx-auto px-6 py-8">
         <p className="text-sm text-ink mb-6 max-w-3xl">
           Players can report profile photos, card photos and public child photos. After reports from 3 different players a photo is hidden
-          (moved to private storage) until you restore or remove it here. Card photos aren't reviewed before they go live.
+          (moved to private storage) until you restore or remove it here. Under 3 reports you can dismiss the reports, hide the photo now, or remove it. Card photos aren't reviewed before they go live.
           If a reported photo could show a child being sexually exploited, don&apos;t restore it, and report it to NCMEC (CyberTipline) before removing it.
         </p>
 
@@ -124,11 +129,18 @@ export default function PhotoReportsPage({ onBack }) {
                   <div className="text-ink-soft mt-1">
                     {c.reportCount || (c.reporters || []).length} report{(c.reportCount || (c.reporters || []).length) === 1 ? "" : "s"} · last {fmt(c.lastReportAt)}
                     {c.hiddenAt ? ` · hidden ${fmt(c.hiddenAt)}` : ""}
-                    {c.resolvedAt ? ` · ${c.status === "removed" ? "removed" : "restored"} ${fmt(c.resolvedAt)}` : ""}
+                    {c.resolvedAt ? ` · ${c.status === "removed" ? "removed" : c.dismissed ? "dismissed" : "restored"} ${fmt(c.resolvedAt)}` : ""}
                   </div>
                   {c.status === "hiding" && <div className="text-negative mt-1">Hiding didn&apos;t finish. Refresh in a minute; if it stays, check the function logs.</div>}
                   {c.note && <div className="text-ink-soft mt-1">{c.note}</div>}
                   <div className="text-ink-soft text-xs mt-1 font-mono break-all">{c.ownerId}</div>
+                  {c.status === "open" && (
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <button disabled={busy === c.id} onClick={() => act(c, "dismiss")} className="px-3 py-1.5 rounded-full border border-cream-line text-ink hover:bg-cream">Dismiss</button>
+                      <button disabled={busy === c.id} onClick={() => act(c, "hide")} className="px-3 py-1.5 rounded-full border border-negative text-negative hover:bg-cream">Hide now</button>
+                      <button disabled={busy === c.id} onClick={() => act(c, "remove")} className="px-3 py-1.5 rounded-full bg-negative text-white">Remove photo</button>
+                    </div>
+                  )}
                   {c.status === "hidden" && (
                     <div className="flex gap-2 mt-3">
                       <button disabled={busy === c.id} onClick={() => act(c, "restore")} className="px-3 py-1.5 rounded-full border border-cream-line text-ink hover:bg-cream">Restore</button>
