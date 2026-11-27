@@ -9,6 +9,7 @@ import { useAdminAuth } from "./hooks/useAdminAuth";
 import EmailInsightsPage from "./EmailInsightsPage.jsx";
 import FeedbackPage from "./FeedbackPage.jsx";
 import PhotoReportsPage from "./PhotoReportsPage.jsx";
+import TradingCardsPage from "./TradingCardsPage.jsx";
 import SkinsPage from "./SkinsPage.jsx";
 import CustomPatchesPage from "./CustomPatchesPage.jsx";
 import { useAdminData, summarize, FEE_MODEL_LABELS, setWelcomePackageSent, approveFieldClaim, rejectFieldClaim, getFieldNotes, addFieldNote, updateFieldInfo, grantPatchToPlayer, removePatchFromPlayer, updateOwnerFeeModel } from "./hooks/useAdminData";
@@ -1314,6 +1315,13 @@ function Dashboard({ email, onSignOut, data, loading, error, reload }) {
                   </button>
                   <button
                     type="button"
+                    onClick={() => { window.location.hash = "cards"; setNavMenuOpen(false); }}
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm text-left hover:bg-cream"
+                  >
+                    Trading cards
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => { window.location.hash = "photo-reports"; setNavMenuOpen(false); }}
                     className="flex items-center gap-1.5 px-3 py-2 text-sm text-left hover:bg-cream"
                   >
@@ -1951,6 +1959,9 @@ function AdminShell({ email, onSignOut }) {
   }
   if (hash === "#feedback") {
     return <FeedbackPage onBack={() => { window.location.hash = ""; }} />;
+  }
+  if (hash === "#cards") {
+    return <TradingCardsPage onBack={() => { window.location.hash = ""; }} />;
   }
   if (hash === "#photo-reports") {
     return <PhotoReportsPage onBack={() => { window.location.hash = ""; }} />;
