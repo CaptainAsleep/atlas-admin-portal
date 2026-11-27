@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, RefreshCw, X } from "lucide-react";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "./lib/firebase";
+import { ReportActions, ReportedPhoto } from "./ReportActions.jsx";
 
 // #cards (2026-11-26): every trading card (players + public kids) with its
 // photo, real pixel size, sharp/low-res, free/paid changes, consent, rank,
@@ -32,7 +33,9 @@ function consentText(c) {
   return c.current ? "Opted in" : "Opted in (old terms)";
 }
 
-function Detail({ row, px, onClose }) {
+const REPORT_STATUS = { open: "Reported", hiding: "Hiding…", hidden: "Hidden", cleared: "Resolved", removed: "Removed" };
+
+function Detail({ row, px, onClose, onChanged }) {
   const q = quality(px);
   const Line = ({ k, v }) => (
     <div className="flex justify-between gap-4 py-1.5 border-b border-cream-line text-sm">
@@ -77,7 +80,21 @@ function Detail({ row, px, onClose }) {
         {row.kind === "adult" && <Line k="Likeness consent" v={`${consentText(row.consent)}${row.consent?.at ? ` · ${fmtDate(row.consent.at)}` : ""}`} />}
         {row.kind === "adult" && row.packConsent && <Line k="Trading & packs" v={consentText(row.packConsent)} />}
         <Line k="Card hidden (opt-out)" v={row.optOut ? "Yes" : "No"} />
-        <Line k="Reports" v={row.reports.length ? row.reports.map((r) => `${r.target}: ${r.status} (${r.count})`).join(", ") : "None"} />
+        <div className="mt-4 mb-2">
+          <div className="text-sm font-semibold text-navy mb-2">Reports</div>
+          {row.reports.length === 0 ? (
+            <div className="text-sm text-ink-soft">None</div>
+          ) : row.reports.map((r) => (
+            <div key={r.caseId} className="border border-cream-line rounded-xl p-3 mb-2">
+              <div className="flex items-center justify-between gap-2 text-sm mb-2">
+                <span className="text-ink">{r.target === "card" ? "Card photo" : "Profile photo"}</span>
+                <span className="text-ink-soft">{REPORT_STATUS[r.status] || r.status} · {r.count} report{r.count === 1 ? "" : "s"}</span>
+              </div>
+              {r.status === "hidden" && <div className="mb-2"><ReportedPhoto caseId={r.caseId} className="w-28 h-28" /></div>}
+              <ReportActions caseId={r.caseId} status={r.status} onDone={onChanged} />
+            </div>
+          ))}
+        </div>
         <Line k="Joined" v={fmtDate(row.createdAt)} />
         <div className="text-xs text-ink-soft font-mono break-all mt-3">{row.id}</div>
       </aside>
@@ -104,7 +121,7 @@ export default function TradingCardsPage({ onBack }) {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [px, setPx] = useState({}); // id -> { w, h }
-  const [open, setOpen] = useState(null);
+  const [openKey, setOpenKey] = useState(null);
 
   const load = () => {
     setLoading(true);
@@ -124,6 +141,8 @@ export default function TradingCardsPage({ onBack }) {
   }, [data, filter, search, px]);
 
   const all = data?.rows || [];
+  // Looked up from the latest data, so the panel updates after an action reloads it.
+  const openRow = openKey ? all.find((r) => `${r.kind}_${r.id}` === openKey) : null;
   const tiles = data ? [
     ["Cards", all.length],
     ["With card photo", all.filter((r) => r.cardPhotoUrl).length],
@@ -193,7 +212,7 @@ export default function TradingCardsPage({ onBack }) {
                 {rows.map((r) => {
                   const q = quality(px[r.id]);
                   return (
-                    <tr key={`${r.kind}_${r.id}`} onClick={() => setOpen(r)} className="border-b border-cream-line hover:bg-cream cursor-pointer">
+                    <tr key={`${r.kind}_${r.id}`} onClick={() => setOpenKey(`${r.kind}_${r.id}`)} className="border-b border-cream-line hover:bg-cream cursor-pointer">
                       <td className="p-2">
                         {r.cardPhotoUrl
                           ? <img src={r.cardPhotoUrl} alt="" loading="lazy" onLoad={measure(r.id)} className="w-10 h-14 object-cover rounded border border-cream-line" />
@@ -229,7 +248,7 @@ export default function TradingCardsPage({ onBack }) {
           </div>
         )}
       </main>
-      {open && <Detail row={open} px={px[open.id]} onClose={() => setOpen(null)} />}
+      {openRow && <Detail row={openRow} px={px[openRow.id]} onClose={() => setOpenKey(null)} onChanged={load} />}
     </div>
   );
 }
