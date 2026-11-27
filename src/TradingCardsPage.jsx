@@ -4,6 +4,53 @@ import { httpsCallable } from "firebase/functions";
 import { functions } from "./lib/firebase";
 import { ReportActions, ReportedPhoto } from "./ReportActions.jsx";
 
+// Hand-given ranks (2026-11-26): any rank but Diamond; kids Common–Epic.
+// Common–Epic is a minimum (they keep climbing); Legendary / Onyx are fixed.
+const GIVABLE = { adult: ["common", "uncommon", "rare", "epic", "legendary", "onyx"], child: ["common", "uncommon", "rare", "epic"] };
+
+function RankControl({ row, onChanged }) {
+  const locked = row.tier === "founder" || row.rankCodeSet || row.rankGiven === "diamond";
+  const [pick, setPick] = useState(row.rankGiven || "");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  if (locked) {
+    return <div className="text-sm text-ink-soft">{row.tier === "founder" ? "Founder" : "Diamond"} rank is set in code and can&apos;t be changed here.</div>;
+  }
+  const save = async (rank) => {
+    const label = rank ? TIER_LABEL[rank] : null;
+    const ok = window.confirm(rank
+      ? `Give ${row.callsign || "this card"} ${label}?${["legendary", "onyx"].includes(rank) ? " It stays until you remove it." : " It's a minimum: they keep climbing if they earn higher."}`
+      : `Remove the hand-given rank from ${row.callsign || "this card"}? Their card goes back to what they've earned.`);
+    if (!ok) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const r = await httpsCallable(functions, "setCardRank")({ ownerKind: row.kind, ownerId: row.id, rank: rank || null });
+      setMsg(`Card now shows ${TIER_LABEL[r.data.rank] || r.data.rank}.`);
+      onChanged?.();
+    } catch (e) {
+      console.error("setCardRank failed:", e);
+      setMsg(e?.message || "That didn't work.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <select value={pick} onChange={(e) => setPick(e.target.value)} disabled={busy} className="px-3 py-1.5 rounded-full border border-cream-line text-sm bg-white">
+          <option value="">None (earned only)</option>
+          {GIVABLE[row.kind].map((r) => <option key={r} value={r}>{TIER_LABEL[r]}</option>)}
+        </select>
+        <button disabled={busy || pick === (row.rankGiven || "")} onClick={() => save(pick || null)}
+          className="px-3 py-1.5 rounded-full bg-navy text-white text-sm disabled:opacity-40">{busy ? "Saving…" : "Save rank"}</button>
+      </div>
+      <div className="text-xs text-ink-soft mt-1.5">Common–Epic is a minimum (they keep climbing). Legendary and Onyx are fixed.{row.kind === "child" ? " Kids can be given up to Epic." : ""}</div>
+      {msg && <div className="text-xs text-ink mt-1">{msg}</div>}
+    </div>
+  );
+}
+
 // #cards (2026-11-26): every trading card (players + public kids) with its
 // photo, real pixel size, sharp/low-res, free/paid changes, consent, rank,
 // deck and reports. Data comes from the admin-only getAdminCardOverview
@@ -73,6 +120,10 @@ function Detail({ row, px, onClose, onChanged }) {
         <Line k="Migrated to new storage" v={row.migrated ? "Yes" : "No — run migrate-card-photos.mjs"} />
         {row.credits && <Line k="Paid changes" v={`${row.credits.paid} bought (${money(row.credits.cents)}), ${row.credits.unused} unused`} />}
         <Line k="Rank" v={`${TIER_LABEL[row.tier] || row.tier}${row.rankOverride ? ` (hand-set: ${row.rankOverride})` : ""}${row.rankFloor ? ` · floor ${row.rankFloor}` : ""}`} />
+        <div className="py-2 border-b border-cream-line">
+          <div className="text-sm text-ink-soft mb-1.5">Hand-given rank{row.rankGiven ? `: ${TIER_LABEL[row.rankGiven] || row.rankGiven}` : ""}</div>
+          <RankControl key={`${row.kind}_${row.id}_${row.rankGiven || ""}`} row={row} onChanged={onChanged} />
+        </div>
         {row.creator && <Line k="Creator tag" v={row.creator} />}
         <Line k="In circulation" v={`${row.circulation} deck${row.circulation === 1 ? "" : "s"}`} />
         {row.deck != null && <Line k="Their deck" v={`${row.deck} card${row.deck === 1 ? "" : "s"}`} />}
